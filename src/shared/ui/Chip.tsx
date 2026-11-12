@@ -17,7 +17,7 @@ export const Chip: React.FC<ChipProps> = ({
   return (
     <button
       type="button"
-      className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-medium transition-all select-none min-h-[36px] active:scale-95 ${
+      className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-medium transition-[transform,background-color] duration-100 select-none min-h-[36px] active:scale-95 ${
         active
           ? 'bg-[var(--primary)] text-black font-semibold shadow-sm'
           : 'bg-[var(--surface-2)] text-[var(--text-muted)] border border-[var(--border)] hover:text-[var(--text)]'

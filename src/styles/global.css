@@ -119,17 +119,21 @@ input, textarea, [contenteditable="true"], .selectable {
   background: var(--gradient-fade);
 }
 
-/* Native iOS frosted translucency */
+/* Native iOS frosted translucency (GPU-layer promoted & tuned for 60/120Hz) */
 .ios-glass-header {
-  background-color: rgba(12, 12, 14, 0.78);
-  -webkit-backdrop-filter: saturate(180%) blur(28px);
-  backdrop-filter: saturate(180%) blur(28px);
+  background-color: rgba(12, 12, 14, 0.84);
+  -webkit-backdrop-filter: saturate(160%) blur(16px);
+  backdrop-filter: saturate(160%) blur(16px);
+  transform: translateZ(0);
+  will-change: transform;
 }
 
 .ios-glass-tabbar {
-  background-color: rgba(16, 16, 18, 0.86);
-  -webkit-backdrop-filter: saturate(180%) blur(28px);
-  backdrop-filter: saturate(180%) blur(28px);
+  background-color: rgba(16, 16, 18, 0.9);
+  -webkit-backdrop-filter: saturate(160%) blur(16px);
+  backdrop-filter: saturate(160%) blur(16px);
+  transform: translateZ(0);
+  will-change: transform;
 }
 
 /* Hide scrollbars cleanly in horizontal carousels & filter bars */
@@ -147,6 +151,14 @@ input, textarea, [contenteditable="true"], .selectable {
   overscroll-behavior-y: contain;
   overscroll-behavior-x: none;
   touch-action: pan-y;
+  transform: translateZ(0);
+}
+
+/* Offscreen list item optimization for smooth 60/120Hz scrolling */
+.tx-row-perf {
+  contain: layout style paint;
+  content-visibility: auto;
+  contain-intrinsic-size: auto 66px;
 }
 
 /* Glow effect for FAB button */

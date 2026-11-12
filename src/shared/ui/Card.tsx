@@ -10,7 +10,7 @@ export const Card: React.FC<CardProps> = ({
   className = '',
   ...props
 }) => {
-  const baseClasses = 'rounded-3xl border border-[var(--border)] transition-colors';
+  const baseClasses = 'rounded-3xl border border-[var(--border)]';
 
   const variantClasses = {
     default: 'bg-[var(--surface)]',

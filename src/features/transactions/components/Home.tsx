@@ -60,6 +60,11 @@ export const Home: React.FC = () => {
   const { budgets } = useBudgets(competence);
   const { upcoming } = useUpcomingPlanned(7);
 
+  const categoryMap = useMemo(
+    () => new Map(categories.map((c) => [c.id, c])),
+    [categories]
+  );
+
   // Aggregations
   const {
     totalExpensesCents,
@@ -437,8 +442,8 @@ export const Home: React.FC = () => {
               <TransactionItem
                 key={tx.id}
                 transaction={tx}
-                category={categories.find((c) => c.id === tx.categoryId)}
-                onClick={() => openEdit(tx)}
+                category={categoryMap.get(tx.categoryId)}
+                onSelect={openEdit}
               />
             ))}
           </div>

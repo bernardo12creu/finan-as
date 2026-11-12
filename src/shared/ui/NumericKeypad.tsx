@@ -44,7 +44,7 @@ export const NumericKeypad: React.FC<NumericKeypadProps> = ({
                   key={k}
                   type="button"
                   onClick={() => handlePress('clear')}
-                  className={`${keyHeight} rounded-2xl bg-[var(--surface-2)] text-[var(--text-muted)] font-semibold text-sm hover:text-[var(--text)] active:bg-[var(--border)] active:scale-95 transition-all flex items-center justify-center min-h-[44px] touch-pan-y`}
+                  className={`${keyHeight} rounded-2xl bg-[var(--surface-2)] text-[var(--text-muted)] font-semibold text-sm hover:text-[var(--text)] active:bg-[var(--border)] active:scale-95 transition-transform duration-75 flex items-center justify-center min-h-[44px] touch-pan-y`}
                   aria-label="Limpar valor"
                 >
                   C
@@ -58,7 +58,7 @@ export const NumericKeypad: React.FC<NumericKeypadProps> = ({
                   key={k}
                   type="button"
                   onClick={() => handlePress('backspace')}
-                  className={`${keyHeight} rounded-2xl bg-[var(--surface-2)] text-[var(--text-muted)] hover:text-[var(--text)] active:bg-[var(--border)] active:scale-95 transition-all flex items-center justify-center min-h-[44px] touch-pan-y`}
+                  className={`${keyHeight} rounded-2xl bg-[var(--surface-2)] text-[var(--text-muted)] hover:text-[var(--text)] active:bg-[var(--border)] active:scale-95 transition-transform duration-75 flex items-center justify-center min-h-[44px] touch-pan-y`}
                   aria-label="Apagar dígito"
                 >
                   <Delete className="w-5 h-5" />
@@ -71,7 +71,7 @@ export const NumericKeypad: React.FC<NumericKeypadProps> = ({
                 key={k}
                 type="button"
                 onClick={() => handlePress(k)}
-                className={`${keyHeight} rounded-2xl bg-[var(--surface-2)] text-[var(--text)] font-semibold text-xl tabular-nums active:bg-[var(--border)] active:scale-95 transition-all flex items-center justify-center min-h-[44px] touch-pan-y`}
+                className={`${keyHeight} rounded-2xl bg-[var(--surface-2)] text-[var(--text)] font-semibold text-xl tabular-nums active:bg-[var(--border)] active:scale-95 transition-transform duration-75 flex items-center justify-center min-h-[44px] touch-pan-y`}
               >
                 {k}
               </button>

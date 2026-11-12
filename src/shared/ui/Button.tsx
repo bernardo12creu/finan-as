@@ -18,7 +18,7 @@ export const Button: React.FC<ButtonProps> = ({
   ...props
 }) => {
   const baseClasses =
-    'relative inline-flex items-center justify-center font-medium rounded-2xl transition-all active:scale-[0.98] select-none focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--primary)] disabled:opacity-50 disabled:pointer-events-none disabled:active:scale-100 min-h-[44px]';
+    'relative inline-flex items-center justify-center font-medium rounded-2xl transition-transform duration-100 active:scale-[0.98] select-none focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--primary)] disabled:opacity-50 disabled:pointer-events-none disabled:active:scale-100 min-h-[44px]';
 
   const variantClasses = {
     primary:

@@ -1,6 +1,5 @@
 import React, { useEffect, useRef } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
-import { motion } from 'framer-motion';
 import { Home, ReceiptText, Plus, BarChart3, Settings } from 'lucide-react';
 import { useTransactionModalStore } from '@/features/transactions/transactionModalStore';
 import { TransactionModal } from '@/features/transactions/components/TransactionModal';
@@ -11,40 +10,49 @@ export const AppLayout: React.FC = () => {
   const navigate = useNavigate();
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  // Smooth bottom-area vertical drag-to-scroll handoff so swiping up from the
-  // bottom tab bar / Home Indicator zone scrolls the active viewport naturally.
+  // VSync-aligned (60Hz / 90Hz / 120Hz ProMotion / 144Hz) bottom-bar vertical scroll handoff
   const navDragRef = useRef<{
     active: boolean;
     startY: number;
     lastY: number;
     lastTime: number;
     velocity: number;
+    pendingDelta: number;
     didScroll: boolean;
     suppressUntil: number;
-    rafId: number | null;
+    moveRafId: number | null;
+    inertiaRafId: number | null;
   }>({
     active: false,
     startY: 0,
     lastY: 0,
     lastTime: 0,
     velocity: 0,
+    pendingDelta: 0,
     didScroll: false,
     suppressUntil: 0,
-    rafId: null,
+    moveRafId: null,
+    inertiaRafId: null,
   });
 
-  const stopInertia = () => {
-    if (navDragRef.current.rafId !== null) {
-      cancelAnimationFrame(navDragRef.current.rafId);
-      navDragRef.current.rafId = null;
+  const stopAnimations = () => {
+    const state = navDragRef.current;
+    if (state.moveRafId !== null) {
+      cancelAnimationFrame(state.moveRafId);
+      state.moveRafId = null;
     }
+    if (state.inertiaRafId !== null) {
+      cancelAnimationFrame(state.inertiaRafId);
+      state.inertiaRafId = null;
+    }
+    state.pendingDelta = 0;
   };
 
-  useEffect(() => stopInertia, []);
+  useEffect(() => stopAnimations, []);
 
   const handleNavTouchStart = (e: React.TouchEvent<HTMLElement>) => {
     if (e.touches.length !== 1) return;
-    stopInertia();
+    stopAnimations();
     const y = e.touches[0].clientY;
     navDragRef.current.active = true;
     navDragRef.current.startY = y;
@@ -68,9 +76,20 @@ export const AppLayout: React.FC = () => {
     }
 
     if (state.didScroll) {
-      scrollRef.current.scrollTop += dy;
+      state.pendingDelta += dy;
       const instantVelocity = dy / dt;
       state.velocity = state.velocity * 0.4 + instantVelocity * 0.6;
+
+      // Flush accumulated delta strictly on display VSync (native device Hz)
+      if (state.moveRafId === null) {
+        state.moveRafId = requestAnimationFrame(() => {
+          state.moveRafId = null;
+          if (scrollRef.current && state.pendingDelta !== 0) {
+            scrollRef.current.scrollTop += state.pendingDelta;
+            state.pendingDelta = 0;
+          }
+        });
+      }
     }
 
     state.lastY = y;
@@ -82,25 +101,35 @@ export const AppLayout: React.FC = () => {
     if (!state.active) return;
     state.active = false;
 
+    if (state.moveRafId !== null) {
+      cancelAnimationFrame(state.moveRafId);
+      state.moveRafId = null;
+    }
+    if (scrollRef.current && state.pendingDelta !== 0) {
+      scrollRef.current.scrollTop += state.pendingDelta;
+      state.pendingDelta = 0;
+    }
+
     if (state.didScroll) {
       state.suppressUntil = performance.now() + 250;
-      let v = Math.max(-3.2, Math.min(3.2, state.velocity));
+      let v = Math.max(-3.6, Math.min(3.6, state.velocity));
       let prev = performance.now();
 
       const step = (now: number) => {
-        const dt = Math.min(32, now - prev);
+        const dt = Math.min(32, Math.max(1, now - prev));
         prev = now;
-        if (!scrollRef.current || Math.abs(v) < 0.04) {
-          state.rafId = null;
+        if (!scrollRef.current || Math.abs(v) < 0.03) {
+          state.inertiaRafId = null;
           return;
         }
         scrollRef.current.scrollTop += v * dt;
-        v *= Math.pow(0.93, dt / 16);
-        state.rafId = requestAnimationFrame(step);
+        // Frame-rate independent exponential friction (identical feel on 60Hz, 120Hz, 144Hz)
+        v *= Math.pow(0.94, dt / 16.6667);
+        state.inertiaRafId = requestAnimationFrame(step);
       };
 
-      if (Math.abs(v) >= 0.12) {
-        state.rafId = requestAnimationFrame(step);
+      if (Math.abs(v) >= 0.1) {
+        state.inertiaRafId = requestAnimationFrame(step);
       }
     }
   };
@@ -129,7 +158,7 @@ export const AppLayout: React.FC = () => {
 
   // Native iOS tab switch feel: always start at top of the dedicated scroll viewport
   useEffect(() => {
-    stopInertia();
+    stopAnimations();
     scrollRef.current?.scrollTo({ top: 0, behavior: 'instant' as ScrollBehavior });
   }, [location.pathname]);
 
@@ -143,19 +172,12 @@ export const AppLayout: React.FC = () => {
 
   return (
     <div className="relative flex-1 w-full h-full min-h-0 flex flex-col max-w-md mx-auto bg-[var(--bg)] text-[var(--text)] overflow-hidden">
-      {/* Vertical-only internal scroll viewport extending seamlessly behind frosted bottom bar */}
+      {/* Native hardware-composited vertical scroll viewport extending behind frosted bottom bar */}
       <main
         ref={scrollRef}
         className="flex-1 min-h-0 w-full overflow-y-auto overflow-x-hidden touch-pan-y ios-scroll pb-[calc(86px+env(safe-area-inset-bottom,0px))]"
       >
-        <motion.div
-          key={location.pathname}
-          initial={{ opacity: 0.94 }}
-          animate={{ opacity: 1 }}
-          transition={{ duration: 0.14, ease: 'easeOut' }}
-        >
-          <Outlet />
-        </motion.div>
+        <Outlet />
       </main>
 
       {/* Global Transaction Modal */}
@@ -180,7 +202,7 @@ export const AppLayout: React.FC = () => {
                     type="button"
                     onClick={() => openCreate('expense')}
                     aria-label="Adicionar gasto"
-                    className="w-[50px] h-[50px] rounded-full bg-[var(--primary)] text-black flex items-center justify-center fab-glow ring-[3px] ring-[#101012]/90 active:scale-90 transition-transform duration-150"
+                    className="w-[50px] h-[50px] rounded-full bg-[var(--primary)] text-black flex items-center justify-center fab-glow ring-[3px] ring-[#101012]/90 active:scale-90 transition-transform duration-100"
                   >
                     <Plus className="w-6 h-6 stroke-[2.6]" />
                   </button>
@@ -195,7 +217,7 @@ export const AppLayout: React.FC = () => {
                 to={item.to!}
                 end={item.end}
                 className={({ isActive }) =>
-                  `relative flex flex-col items-center justify-center py-1 px-2.5 rounded-2xl transition-all duration-150 active:scale-90 min-h-[44px] min-w-[60px] ${
+                  `relative flex flex-col items-center justify-center py-1 px-2.5 rounded-2xl transition-transform duration-100 active:scale-90 min-h-[44px] min-w-[60px] ${
                     isActive
                       ? 'text-[var(--primary-bright)]'
                       : 'text-[var(--text-muted)] hover:text-[var(--text)]'
@@ -205,7 +227,7 @@ export const AppLayout: React.FC = () => {
                 {({ isActive }) => (
                   <>
                     <Icon
-                      className={`w-[20px] h-[20px] mb-0.5 transition-transform ${
+                      className={`w-[20px] h-[20px] mb-0.5 transition-transform duration-100 ${
                         isActive ? 'scale-105' : ''
                       }`}
                       strokeWidth={isActive ? 2.4 : 1.85}

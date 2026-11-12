@@ -2,15 +2,13 @@ import { lazy, Suspense } from 'react';
 import { createBrowserRouter, Navigate } from 'react-router-dom';
 import { AppLayout } from './layout';
 import { Skeleton } from '@/shared/ui/Skeleton';
+import { Home } from '@/features/transactions/components/Home';
+import { TransactionsList } from '@/features/transactions/components/TransactionsList';
+import { BudgetsView } from '@/features/budgets/components/BudgetsView';
+import { AccountsView } from '@/features/accounts/components/AccountsView';
+import { SettingsView } from '@/features/settings/components/SettingsView';
 
-const Home = lazy(() =>
-  import('@/features/transactions/components/Home').then((m) => ({ default: m.Home }))
-);
-const TransactionsList = lazy(() =>
-  import('@/features/transactions/components/TransactionsList').then((m) => ({
-    default: m.TransactionsList,
-  }))
-);
+// Keep heavy chart/spreadsheet routes code-split while keeping core tabs instant (0ms switch)
 const ReportsView = lazy(() =>
   import('@/features/reports/components/ReportsView').then((m) => ({
     default: m.ReportsView,
@@ -19,21 +17,6 @@ const ReportsView = lazy(() =>
 const ClosingView = lazy(() =>
   import('@/features/closing/components/ClosingView').then((m) => ({
     default: m.ClosingView,
-  }))
-);
-const BudgetsView = lazy(() =>
-  import('@/features/budgets/components/BudgetsView').then((m) => ({
-    default: m.BudgetsView,
-  }))
-);
-const AccountsView = lazy(() =>
-  import('@/features/accounts/components/AccountsView').then((m) => ({
-    default: m.AccountsView,
-  }))
-);
-const SettingsView = lazy(() =>
-  import('@/features/settings/components/SettingsView').then((m) => ({
-    default: m.SettingsView,
   }))
 );
 const OnboardingView = lazy(() =>
@@ -65,19 +48,11 @@ export const router = createBrowserRouter([
     children: [
       {
         index: true,
-        element: (
-          <Suspense fallback={fallback}>
-            <Home />
-          </Suspense>
-        ),
+        element: <Home />,
       },
       {
         path: 'lancamentos',
-        element: (
-          <Suspense fallback={fallback}>
-            <TransactionsList />
-          </Suspense>
-        ),
+        element: <TransactionsList />,
       },
       {
         path: 'relatorios',
@@ -97,27 +72,15 @@ export const router = createBrowserRouter([
       },
       {
         path: 'orcamentos',
-        element: (
-          <Suspense fallback={fallback}>
-            <BudgetsView />
-          </Suspense>
-        ),
+        element: <BudgetsView />,
       },
       {
         path: 'contas',
-        element: (
-          <Suspense fallback={fallback}>
-            <AccountsView />
-          </Suspense>
-        ),
+        element: <AccountsView />,
       },
       {
         path: 'ajustes',
-        element: (
-          <Suspense fallback={fallback}>
-            <SettingsView />
-          </Suspense>
-        ),
+        element: <SettingsView />,
       },
       {
         path: '*',

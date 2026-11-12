@@ -50,14 +50,14 @@ export const Sheet: React.FC<SheetProps> = ({
     <AnimatePresence>
       {isOpen && (
         <div className="fixed inset-0 z-50 flex items-end justify-center">
-          {/* Backdrop */}
+          {/* Backdrop (compositor-only opacity for lock-smooth 60/120Hz opening) */}
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            transition={{ duration: 0.22 }}
+            transition={{ duration: 0.16, ease: 'easeOut' }}
             onClick={onClose}
-            className="fixed inset-0 bg-black/75 backdrop-blur-sm"
+            className="fixed inset-0 bg-black/75 will-change-[opacity]"
           />
 
           {/* Bottom Sheet Card */}
@@ -65,19 +65,19 @@ export const Sheet: React.FC<SheetProps> = ({
             initial={{ y: '100%' }}
             animate={{ y: 0 }}
             exit={{ y: '100%' }}
-            transition={{ type: 'spring', damping: 32, stiffness: 360, mass: 0.85 }}
+            transition={{ type: 'spring', damping: 38, stiffness: 460, mass: 0.72 }}
             drag="y"
             dragControls={dragControls}
             dragListener={false}
             dragConstraints={{ top: 0 }}
-            dragElastic={{ top: 0.05, bottom: 0.35 }}
+            dragElastic={{ top: 0.04, bottom: 0.32 }}
             onDragEnd={(_, info) => {
-              if (info.offset.y > 100 || info.velocity.y > 480) {
+              if (info.offset.y > 90 || info.velocity.y > 420) {
                 onClose();
               }
             }}
-            style={{ maxHeight }}
-            className="relative z-10 w-full max-w-md rounded-t-[28px] bg-[#141416]/95 backdrop-blur-2xl border-t border-x border-white/[0.09] shadow-2xl flex flex-col overflow-hidden"
+            style={{ maxHeight, willChange: 'transform' }}
+            className="relative z-10 w-full max-w-md rounded-t-[28px] bg-[#141416] border-t border-x border-white/[0.09] shadow-2xl flex flex-col overflow-hidden"
           >
             {/* Drag Handle Indicator + Interactive Header Zone */}
             <div
@@ -120,7 +120,7 @@ export const Sheet: React.FC<SheetProps> = ({
 
             {/* Always-visible Sticky Footer Action Bar */}
             {footer ? (
-              <div className="shrink-0 border-t border-white/[0.08] bg-[#141416]/95 backdrop-blur-xl px-5 pt-3 pb-[calc(max(env(safe-area-inset-bottom,0px),12px)+4px)]">
+              <div className="shrink-0 border-t border-white/[0.08] bg-[#141416] px-5 pt-3 pb-[calc(max(env(safe-area-inset-bottom,0px),12px)+4px)]">
                 {footer}
               </div>
             ) : null}

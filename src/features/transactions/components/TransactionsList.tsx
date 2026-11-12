@@ -58,6 +58,11 @@ export const TransactionsList: React.FC = () => {
 
   const { categories } = useCategories();
 
+  const categoryMap = useMemo(
+    () => new Map(categories.map((c) => [c.id, c])),
+    [categories]
+  );
+
   // Group transactions by date
   const groupedTransactions = useMemo(() => {
     const groups: Array<{
@@ -299,8 +304,8 @@ export const TransactionsList: React.FC = () => {
                   <div key={tx.id} className="relative group">
                     <TransactionItem
                       transaction={tx}
-                      category={categories.find((c) => c.id === tx.categoryId)}
-                      onClick={() => openEdit(tx)}
+                      category={categoryMap.get(tx.categoryId)}
+                      onSelect={openEdit}
                     />
                     <button
                       type="button"

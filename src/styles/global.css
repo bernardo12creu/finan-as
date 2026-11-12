@@ -1,0 +1,169 @@
+@import "tailwindcss";
+@import "./tokens.css";
+
+@theme {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-border: var(--border);
+  --color-text: var(--text);
+  --color-text-muted: var(--text-muted);
+  --color-primary: var(--primary);
+  --color-primary-bright: var(--primary-bright);
+  --color-primary-deep: var(--primary-deep);
+  --color-warning: var(--warning);
+  --color-danger: var(--danger);
+  --font-sans: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'SF Pro Text', 'Inter', system-ui, 'Segoe UI', Roboto, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-touch-callout: none;
+}
+
+/*
+ * Edge-to-edge iOS 18 / iPhone 16 viewport setup:
+ * - Never apply -webkit-fill-available or height:100% + bottom:0 together on #root:
+ *   on iOS 18 standalone PWAs with black-translucent + viewport-fit=cover, WebKit
+ *   often subtracts safe-area-inset-bottom (~34px) from 100% / 100dvh, leaving a
+ *   dead bottom chin below the tab bar.
+ * - installIosViewportSync() sets --app-height to the full physical screen height
+ *   in iOS standalone mode so the frosted tab bar paints edge-to-edge under the Home Indicator.
+ */
+html {
+  width: 100%;
+  height: var(--app-height, 100%);
+  margin: 0;
+  padding: 0;
+  background-color: var(--bg);
+  overflow: hidden;
+  overscroll-behavior: none;
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  width: 100%;
+  height: var(--app-height, 100%);
+  margin: 0;
+  padding: 0;
+  background-color: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  overflow: hidden;
+  overscroll-behavior: none;
+  touch-action: pan-y;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+#root {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  height: var(--app-height, auto);
+  margin: 0;
+  padding: 0;
+  background-color: var(--bg);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
+@media all and (display-mode: standalone) {
+  html,
+  body {
+    height: var(--app-height, calc(100dvh + env(safe-area-inset-bottom, 0px)));
+  }
+
+  #root {
+    height: var(--app-height, calc(100dvh + env(safe-area-inset-bottom, 0px)));
+  }
+}
+
+/* Prevent iOS Safari / standalone WebKit auto-zoom on form focus (< 16px triggers zoom) */
+input,
+select,
+textarea {
+  font-size: 16px !important;
+}
+
+/* Allow text selection in inputs and explicit selectable text */
+input, textarea, [contenteditable="true"], .selectable {
+  user-select: text;
+  -webkit-user-select: text;
+  -webkit-touch-callout: default;
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+.gradient-fade {
+  background: var(--gradient-fade);
+}
+
+/* Native iOS frosted translucency */
+.ios-glass-header {
+  background-color: rgba(12, 12, 14, 0.78);
+  -webkit-backdrop-filter: saturate(180%) blur(28px);
+  backdrop-filter: saturate(180%) blur(28px);
+}
+
+.ios-glass-tabbar {
+  background-color: rgba(16, 16, 18, 0.86);
+  -webkit-backdrop-filter: saturate(180%) blur(28px);
+  backdrop-filter: saturate(180%) blur(28px);
+}
+
+/* Hide scrollbars cleanly in horizontal carousels & filter bars */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* Controlled internal vertical scrolling without outer page bounce */
+.ios-scroll {
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-y: contain;
+  overscroll-behavior-x: none;
+}
+
+/* Glow effect for FAB button */
+.fab-glow {
+  box-shadow: 0 4px 20px rgba(34, 197, 94, 0.42), 0 0 10px rgba(34, 197, 94, 0.25);
+}
+
+/* Scrollbar customization for dark theme */
+::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+::-webkit-scrollbar-track {
+  background: var(--bg);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, ::before, ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

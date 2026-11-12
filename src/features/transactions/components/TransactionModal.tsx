@@ -4,6 +4,8 @@ import { Sheet } from '@/shared/ui/Sheet';
 import { NumericKeypad } from '@/shared/ui/NumericKeypad';
 import { Button } from '@/shared/ui/Button';
 import { CategoryIcon } from '@/shared/ui/CategoryIcon';
+import { BankLogo } from '@/shared/ui/BankLogo';
+import { matchBankByName } from '@/shared/lib/banks';
 import { formatCentsToBRL, keypadInputToCents } from '@/shared/lib/money';
 import { getTodayDateString, formatFriendlyDate } from '@/shared/lib/dates';
 import { generateInstallmentPlan } from '@/shared/lib/installments';
@@ -583,18 +585,20 @@ export const TransactionModal: React.FC = () => {
               </span>
               {accounts.map((acc) => {
                 const isSelected = acc.id === accountId;
+                const matchedBank = matchBankByName(acc.name);
                 return (
                   <button
                     key={acc.id}
                     type="button"
                     onClick={() => setAccountId(acc.id)}
-                    className={`touch-pan-xy px-2.5 py-1 rounded-xl border text-[11px] font-semibold shrink-0 transition-transform duration-100 active:scale-95 ${
+                    className={`touch-pan-xy inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl border text-[11px] font-semibold shrink-0 transition-transform duration-100 active:scale-95 ${
                       isSelected
                         ? 'border-[var(--primary)] bg-[var(--primary)]/15 text-[var(--primary-bright)]'
                         : 'border-[var(--border)] bg-[var(--surface)] text-[var(--text-muted)]'
                     }`}
                   >
-                    {acc.name}
+                    {matchedBank && <BankLogo bank={matchedBank} size="xs" />}
+                    <span>{acc.name}</span>
                   </button>
                 );
               })}

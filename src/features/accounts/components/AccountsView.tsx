@@ -1,18 +1,26 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { CreditCard, Wallet, Building2, Plus, ArrowLeft } from 'lucide-react';
+import { CreditCard, Wallet, Building2, Plus, ArrowLeft, Check } from 'lucide-react';
 import { Card } from '@/shared/ui/Card';
 import { Button } from '@/shared/ui/Button';
 import { Sheet } from '@/shared/ui/Sheet';
 import { MobileHeader } from '@/shared/ui/MobileHeader';
+import { BankLogo } from '@/shared/ui/BankLogo';
 import { formatCentsToBRL } from '@/shared/lib/money';
 import { getCurrentCompetence } from '@/shared/lib/dates';
 import { calculateCardInvoiceCompetence } from '@/shared/lib/competence';
+import { BRAZILIAN_BANKS, BankPreset, getBankById, matchBankByName } from '@/shared/lib/banks';
 import { useAccounts, useTransactions } from '@/data/hooks';
 import { accountRepository } from '@/data/repositories/local/localRepository';
 import { useSessionStore } from '@/data/session';
 import { showToast } from '@/shared/ui/toastStore';
 import { AccountKind } from '@/data/db';
+
+const ACCOUNT_KIND_OPTIONS: Array<{ value: AccountKind; label: string }> = [
+  { value: 'credit_card', label: 'Cartão' },
+  { value: 'checking', label: 'Conta' },
+  { value: 'wallet', label: 'Carteira' },
+];
 
 export const AccountsView: React.FC = () => {
   const navigate = useNavigate();
@@ -22,19 +30,50 @@ export const AccountsView: React.FC = () => {
   const { transactions } = useTransactions();
 
   const [isAddOpen, setIsAddOpen] = useState(false);
+  const [selectedBankId, setSelectedBankId] = useState<string | null>(null);
   const [name, setName] = useState('');
   const [kind, setKind] = useState<AccountKind>('credit_card');
   const [closingDay, setClosingDay] = useState<number>(25);
   const [dueDay, setDueDay] = useState<number>(5);
 
+  const activeBank = useMemo(() => {
+    if (selectedBankId) return getBankById(selectedBankId);
+    return matchBankByName(name);
+  }, [selectedBankId, name]);
+
+  const openAddSheet = () => {
+    setSelectedBankId(null);
+    setName('');
+    setKind('credit_card');
+    setClosingDay(25);
+    setDueDay(5);
+    setIsAddOpen(true);
+  };
+
+  const handleSelectBank = (bank: BankPreset | null) => {
+    if (!bank) {
+      const wasPresetName = BRAZILIAN_BANKS.some((b) => b.name === name.trim());
+      setSelectedBankId(null);
+      if (wasPresetName) setName('');
+      return;
+    }
+
+    const previousPreset = selectedBankId ? getBankById(selectedBankId)?.name : undefined;
+    setSelectedBankId(bank.id);
+    if (!name.trim() || name.trim() === previousPreset || BRAZILIAN_BANKS.some((b) => b.name === name.trim())) {
+      setName(bank.name);
+    }
+  };
+
   const handleCreate = async () => {
-    if (!name.trim()) {
-      showToast({ message: 'Digite o nome da conta ou cartão', type: 'error' });
+    const trimmedName = name.trim();
+    if (!trimmedName) {
+      showToast({ message: 'Escolha um banco ou digite o nome da conta', type: 'error' });
       return;
     }
 
     await accountRepository.create({
-      name: name.trim(),
+      name: trimmedName,
       kind,
       ownerId: currentUserId || 'default',
       closingDay: kind === 'credit_card' ? closingDay : undefined,
@@ -43,6 +82,7 @@ export const AccountsView: React.FC = () => {
 
     showToast({ message: 'Conta cadastrada com sucesso!', type: 'success' });
     setIsAddOpen(false);
+    setSelectedBankId(null);
     setName('');
   };
 
@@ -52,7 +92,6 @@ export const AccountsView: React.FC = () => {
     return transactions
       .filter((t) => {
         if (t.accountId !== accountId || t.type !== 'expense') return false;
-        // Determine which invoice this transaction falls into
         const invoiceComp = calculateCardInvoiceCompetence(t.date, cardClosingDay);
         return invoiceComp === currentCompetence;
       })
@@ -77,7 +116,7 @@ export const AccountsView: React.FC = () => {
               <p className="text-[11px] text-[var(--text-muted)] truncate">Bancos, carteiras e faturas</p>
             </div>
           </div>
-          <Button size="sm" variant="secondary" onClick={() => setIsAddOpen(true)} className="shrink-0">
+          <Button size="sm" variant="secondary" onClick={openAddSheet} className="shrink-0">
             <Plus className="w-4 h-4 mr-1" />
             Nova
           </Button>
@@ -99,13 +138,16 @@ export const AccountsView: React.FC = () => {
             .filter((a) => a.kind === 'credit_card')
             .map((card) => {
               const invoiceAmount = getCardCurrentInvoice(card.id, card.closingDay);
+              const matchedBank = matchBankByName(card.name);
               return (
                 <Card key={card.id} className="p-4 flex flex-col gap-3">
                   <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2.5">
-                      <div className="w-9 h-9 rounded-xl bg-[var(--surface-2)] flex items-center justify-center text-[var(--primary)]">
-                        <CreditCard className="w-5 h-5" />
-                      </div>
+                    <div className="flex items-center gap-3">
+                      <BankLogo
+                        bank={matchedBank}
+                        size="md"
+                        fallback={<CreditCard className="w-5 h-5" />}
+                      />
                       <div>
                         <h3 className="text-sm font-bold text-[var(--text)]">{card.name}</h3>
                         <div className="flex items-center gap-2 text-[11px] text-[var(--text-muted)]">
@@ -137,21 +179,32 @@ export const AccountsView: React.FC = () => {
 
         {accounts
           .filter((a) => a.kind !== 'credit_card')
-          .map((acc) => (
-            <Card key={acc.id} className="p-4 flex items-center justify-between">
-              <div className="flex items-center gap-2.5">
-                <div className="w-9 h-9 rounded-xl bg-[var(--surface-2)] flex items-center justify-center text-[var(--primary)]">
-                  {acc.kind === 'checking' ? <Building2 className="w-5 h-5" /> : <Wallet className="w-5 h-5" />}
+          .map((acc) => {
+            const matchedBank = matchBankByName(acc.name);
+            return (
+              <Card key={acc.id} className="p-4 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <BankLogo
+                    bank={matchedBank}
+                    size="md"
+                    fallback={
+                      acc.kind === 'checking' ? (
+                        <Building2 className="w-5 h-5" />
+                      ) : (
+                        <Wallet className="w-5 h-5" />
+                      )
+                    }
+                  />
+                  <div>
+                    <h3 className="text-sm font-bold text-[var(--text)]">{acc.name}</h3>
+                    <span className="text-[11px] text-[var(--text-muted)]">
+                      {acc.kind === 'checking' ? 'Conta Corrente' : 'Carteira / Dinheiro'}
+                    </span>
+                  </div>
                 </div>
-                <div>
-                  <h3 className="text-sm font-bold text-[var(--text)]">{acc.name}</h3>
-                  <span className="text-[11px] text-[var(--text-muted)]">
-                    {acc.kind === 'checking' ? 'Conta Corrente' : 'Carteira / Dinheiro'}
-                  </span>
-                </div>
-              </div>
-            </Card>
-          ))}
+              </Card>
+            );
+          })}
       </div>
 
       {/* Add Account Sheet */}
@@ -166,28 +219,120 @@ export const AccountsView: React.FC = () => {
         }
       >
         <div className="flex flex-col gap-4">
-          <div className="flex flex-col gap-1">
+          {/* Segmented Tipo selector (iOS native feel) */}
+          <div className="flex flex-col gap-1.5">
             <label className="text-xs font-medium text-[var(--text-muted)]">Tipo</label>
-            <select
-              value={kind}
-              onChange={(e) => setKind(e.target.value as AccountKind)}
-              className="bg-[var(--surface-2)] border border-[var(--border)] text-[var(--text)] text-sm rounded-xl px-3 py-2.5 focus:outline-none min-h-[44px]"
-            >
-              <option value="credit_card">Cartão de Crédito</option>
-              <option value="checking">Conta Corrente</option>
-              <option value="wallet">Carteira / Dinheiro</option>
-            </select>
+            <div className="grid grid-cols-3 gap-1.5 p-1 bg-[var(--surface-2)] rounded-2xl border border-[var(--border)]">
+              {ACCOUNT_KIND_OPTIONS.map((opt) => {
+                const isActive = kind === opt.value;
+                return (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => setKind(opt.value)}
+                    className={`py-2 px-2 rounded-xl text-xs font-semibold transition-transform duration-100 active:scale-95 ${
+                      isActive
+                        ? 'bg-[var(--primary)] text-black shadow-xs'
+                        : 'text-[var(--text-muted)] hover:text-[var(--text)]'
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                );
+              })}
+            </div>
           </div>
 
-          <div className="flex flex-col gap-1">
-            <label className="text-xs font-medium text-[var(--text-muted)]">Nome</label>
-            <input
-              type="text"
-              placeholder="Ex: Nubank, Itaú, Carteira"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              className="bg-[var(--surface-2)] border border-[var(--border)] text-[var(--text)] text-sm rounded-xl px-3 py-2.5 focus:outline-none min-h-[44px]"
-            />
+          {/* Pre-existing Brazilian banks with logo alongside name */}
+          {kind !== 'wallet' && (
+            <div className="flex flex-col gap-2">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-medium text-[var(--text-muted)]">
+                  Instituição / Banco
+                </label>
+                {activeBank && (
+                  <span className="text-[11px] font-semibold text-[var(--primary-bright)]">
+                    {activeBank.name}
+                  </span>
+                )}
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                {BRAZILIAN_BANKS.map((bank) => {
+                  const isSelected = activeBank?.id === bank.id;
+                  return (
+                    <button
+                      key={bank.id}
+                      type="button"
+                      onClick={() => handleSelectBank(bank)}
+                      className={`flex items-center gap-2.5 p-2 rounded-2xl border text-left transition-transform duration-100 active:scale-[0.97] min-h-[48px] ${
+                        isSelected
+                          ? 'border-[var(--primary)] bg-[var(--surface-2)] text-[var(--text)]'
+                          : 'border-[var(--border)] bg-[var(--surface)] text-[var(--text)] hover:bg-[var(--surface-2)]'
+                      }`}
+                    >
+                      <BankLogo bank={bank} size="sm" />
+                      <span className="text-xs font-semibold truncate flex-1">{bank.name}</span>
+                      {isSelected && (
+                        <Check className="w-3.5 h-3.5 text-[var(--primary-bright)] shrink-0" />
+                      )}
+                    </button>
+                  );
+                })}
+
+                <button
+                  type="button"
+                  onClick={() => handleSelectBank(null)}
+                  className={`flex items-center gap-2.5 p-2 rounded-2xl border text-left transition-transform duration-100 active:scale-[0.97] min-h-[48px] ${
+                    !activeBank
+                      ? 'border-[var(--primary)]/60 bg-[var(--surface-2)] text-[var(--text)]'
+                      : 'border-[var(--border)] bg-[var(--surface)] text-[var(--text-muted)] hover:text-[var(--text)]'
+                  }`}
+                >
+                  <BankLogo
+                    size="sm"
+                    fallback={<Building2 className="w-4 h-4 text-[var(--text-muted)]" />}
+                  />
+                  <span className="text-xs font-semibold truncate flex-1">Outro banco</span>
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Account Name Input with Live Matched Bank Logo */}
+          <div className="flex flex-col gap-1.5">
+            <label className="text-xs font-medium text-[var(--text-muted)]">Nome da conta</label>
+            <div className="flex items-center gap-2.5">
+              <BankLogo
+                bank={activeBank}
+                size="sm"
+                fallback={
+                  kind === 'credit_card' ? (
+                    <CreditCard className="w-4 h-4" />
+                  ) : kind === 'checking' ? (
+                    <Building2 className="w-4 h-4" />
+                  ) : (
+                    <Wallet className="w-4 h-4" />
+                  )
+                }
+              />
+              <input
+                type="text"
+                placeholder={
+                  kind === 'wallet'
+                    ? 'Ex: Carteira, Dinheiro em casa'
+                    : 'Ex: Nubank Ultravioleta, Itaú Black'
+                }
+                value={name}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setName(val);
+                  const matched = matchBankByName(val);
+                  setSelectedBankId(matched ? matched.id : null);
+                }}
+                className="flex-1 min-w-0 bg-[var(--surface-2)] border border-[var(--border)] text-[var(--text)] rounded-xl px-3 py-2.5 focus:outline-none focus:border-[var(--primary)] min-h-[44px]"
+              />
+            </div>
           </div>
 
           {kind === 'credit_card' && (
@@ -200,7 +345,7 @@ export const AccountsView: React.FC = () => {
                   max={31}
                   value={closingDay}
                   onChange={(e) => setClosingDay(Number(e.target.value))}
-                  className="bg-[var(--surface-2)] border border-[var(--border)] text-[var(--text)] text-sm rounded-xl px-3 py-2.5 focus:outline-none min-h-[44px]"
+                  className="bg-[var(--surface-2)] border border-[var(--border)] text-[var(--text)] rounded-xl px-3 py-2.5 focus:outline-none focus:border-[var(--primary)] min-h-[44px]"
                 />
               </div>
 
@@ -212,7 +357,7 @@ export const AccountsView: React.FC = () => {
                   max={31}
                   value={dueDay}
                   onChange={(e) => setDueDay(Number(e.target.value))}
-                  className="bg-[var(--surface-2)] border border-[var(--border)] text-[var(--text)] text-sm rounded-xl px-3 py-2.5 focus:outline-none min-h-[44px]"
+                  className="bg-[var(--surface-2)] border border-[var(--border)] text-[var(--text)] rounded-xl px-3 py-2.5 focus:outline-none focus:border-[var(--primary)] min-h-[44px]"
                 />
               </div>
             </div>

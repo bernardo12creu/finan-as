@@ -53,7 +53,7 @@ export const Home: React.FC = () => {
   }, [competence]);
 
   // Data queries
-  const { transactions } = useTransactions({ competence });
+  const { transactions, isLoading } = useTransactions({ competence });
   const prevCompetence = getPreviousCompetence(competence);
   const { transactions: prevTransactions } = useTransactions({ competence: prevCompetence });
   const { categories } = useCategories();
@@ -155,7 +155,7 @@ export const Home: React.FC = () => {
             <button
               type="button"
               onClick={() => setCompetence(getPreviousCompetence(competence))}
-              className="w-8 h-8 text-[var(--text-muted)] hover:text-[var(--text)] rounded-full hover:bg-white/[0.08] active:scale-90 transition-all flex items-center justify-center"
+              className="w-8 h-8 text-[var(--text-muted)] hover:text-[var(--text)] rounded-full hover:bg-white/[0.08] active:scale-90 transition-transform duration-100 flex items-center justify-center"
               aria-label="Mês anterior"
             >
               <ChevronLeft className="w-4 h-4" />
@@ -168,7 +168,7 @@ export const Home: React.FC = () => {
             <button
               type="button"
               onClick={() => setCompetence(getNextCompetence(competence))}
-              className="w-8 h-8 text-[var(--text-muted)] hover:text-[var(--text)] rounded-full hover:bg-white/[0.08] active:scale-90 transition-all flex items-center justify-center"
+              className="w-8 h-8 text-[var(--text-muted)] hover:text-[var(--text)] rounded-full hover:bg-white/[0.08] active:scale-90 transition-transform duration-100 flex items-center justify-center"
               aria-label="Próximo mês"
             >
               <ChevronRight className="w-4 h-4" />
@@ -222,7 +222,7 @@ export const Home: React.FC = () => {
             <button
               type="button"
               onClick={() => navigate('/lancamentos?type=income')}
-              className="flex flex-col text-left p-3 rounded-2xl bg-[var(--surface-2)]/80 border border-[var(--border)]/60 hover:border-[var(--primary)]/40 active:scale-[0.98] transition-all"
+              className="flex flex-col text-left p-3 rounded-2xl bg-[var(--surface-2)]/80 border border-[var(--border)]/60 hover:border-[var(--primary)]/40 active:scale-[0.98] transition-transform duration-100"
             >
               <span className="text-[11px] text-[var(--text-muted)] font-medium flex items-center gap-1">
                 <span className="w-1.5 h-1.5 rounded-full bg-[var(--primary)]" />
@@ -236,7 +236,7 @@ export const Home: React.FC = () => {
             <button
               type="button"
               onClick={() => navigate('/lancamentos?type=expense')}
-              className="flex flex-col text-left p-3 rounded-2xl bg-[var(--surface-2)]/80 border border-[var(--border)]/60 hover:border-[var(--danger)]/40 active:scale-[0.98] transition-all"
+              className="flex flex-col text-left p-3 rounded-2xl bg-[var(--surface-2)]/80 border border-[var(--border)]/60 hover:border-[var(--danger)]/40 active:scale-[0.98] transition-transform duration-100"
             >
               <span className="text-[11px] text-[var(--text-muted)] font-medium flex items-center gap-1">
                 <span className="w-1.5 h-1.5 rounded-full bg-[var(--danger)]" />
@@ -253,7 +253,7 @@ export const Home: React.FC = () => {
             <button
               type="button"
               onClick={() => openCreate('expense')}
-              className="flex items-center justify-center gap-1.5 min-h-[42px] px-3 rounded-2xl bg-[var(--danger)]/12 border border-[var(--danger)]/25 text-xs font-bold text-[var(--text)] hover:bg-[var(--danger)]/20 active:scale-[0.97] transition-all"
+              className="flex items-center justify-center gap-1.5 min-h-[42px] px-3 rounded-2xl bg-[var(--danger)]/12 border border-[var(--danger)]/25 text-xs font-bold text-[var(--text)] hover:bg-[var(--danger)]/20 active:scale-[0.97] transition-transform duration-100"
             >
               <Minus className="w-3.5 h-3.5 text-[var(--danger)] stroke-[2.6]" />
               Novo gasto
@@ -261,7 +261,7 @@ export const Home: React.FC = () => {
             <button
               type="button"
               onClick={() => openCreate('income')}
-              className="flex items-center justify-center gap-1.5 min-h-[42px] px-3 rounded-2xl bg-[var(--primary)]/14 border border-[var(--primary)]/30 text-xs font-bold text-[var(--primary-bright)] hover:bg-[var(--primary)]/22 active:scale-[0.97] transition-all"
+              className="flex items-center justify-center gap-1.5 min-h-[42px] px-3 rounded-2xl bg-[var(--primary)]/14 border border-[var(--primary)]/30 text-xs font-bold text-[var(--primary-bright)] hover:bg-[var(--primary)]/22 active:scale-[0.97] transition-transform duration-100"
             >
               <Plus className="w-3.5 h-3.5 stroke-[2.6]" />
               Nova receita
@@ -294,7 +294,7 @@ export const Home: React.FC = () => {
       {/* Monthly Closing Wrapped Banner */}
       <div
         onClick={() => navigate(`/fechamento/${competence}`)}
-        className="flex items-center justify-between p-4 rounded-3xl bg-[var(--surface-2)] border border-[var(--border)] hover:border-[var(--primary)]/50 active:scale-[0.99] transition-all cursor-pointer shadow-sm"
+        className="flex items-center justify-between p-4 rounded-3xl bg-[var(--surface-2)] border border-[var(--border)] hover:border-[var(--primary)]/50 active:scale-[0.99] transition-transform duration-100 cursor-pointer shadow-sm"
       >
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-2xl bg-[var(--primary)]/10 text-[var(--primary)] flex items-center justify-center">
@@ -331,7 +331,7 @@ export const Home: React.FC = () => {
               key={category.id}
               type="button"
               onClick={() => navigate(`/lancamentos?category=${encodeURIComponent(category.id)}`)}
-              className="flex flex-col items-center justify-between p-3.5 rounded-3xl bg-[var(--surface)] border border-[var(--border)] hover:border-[var(--primary)]/40 active:scale-[0.97] transition-all min-w-[130px] shrink-0 min-h-[140px] text-left"
+              className="flex flex-col items-center justify-between p-3.5 rounded-3xl bg-[var(--surface)] border border-[var(--border)] hover:border-[var(--primary)]/40 active:scale-[0.97] transition-transform duration-100 min-w-[130px] shrink-0 min-h-[140px] text-left"
             >
               <div className="flex items-center justify-between w-full">
                 <span className="text-xs font-semibold text-[var(--text)] truncate max-w-[80px]">
@@ -429,7 +429,12 @@ export const Home: React.FC = () => {
           </button>
         </div>
 
-        {recentTransactions.length === 0 ? (
+        {isLoading && recentTransactions.length === 0 ? (
+          <div className="flex flex-col gap-2" aria-busy="true">
+            <div className="h-[62px] rounded-2xl bg-[var(--surface)] border border-[var(--border)] opacity-60" />
+            <div className="h-[62px] rounded-2xl bg-[var(--surface)] border border-[var(--border)] opacity-40" />
+          </div>
+        ) : recentTransactions.length === 0 ? (
           <EmptyState
             title="Nenhum lançamento no mês"
             description="Toque no botão + abaixo para registrar seu primeiro gasto ou receita."

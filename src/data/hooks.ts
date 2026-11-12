@@ -1,3 +1,4 @@
+import { useRef } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { Transaction, Category, Account, Budget, RecurringRule, WorkspaceSettings } from '@/data/db';
 import { useSessionStore } from '@/data/session';
@@ -13,6 +14,7 @@ import { TransactionFilters } from './repositories/interfaces';
 
 export function useTransactions(filters?: TransactionFilters) {
   const { currentWorkspaceId } = useSessionStore();
+  const lastResolvedRef = useRef<Transaction[]>([]);
 
   const transactions = useLiveQuery(
     async () => {
@@ -29,12 +31,16 @@ export function useTransactions(filters?: TransactionFilters) {
       filters?.status,
       filters?.search,
       filters?.paidBy,
-    ],
-    []
+    ]
   );
 
+  if (transactions !== undefined) {
+    lastResolvedRef.current = transactions;
+  }
+
   return {
-    transactions: transactions ?? [],
+    transactions: transactions ?? lastResolvedRef.current,
+    isLoading: transactions === undefined,
     repository: transactionRepository,
   };
 }

@@ -39,6 +39,26 @@ const PAYMENT_OPTIONS: Array<{
 ];
 
 const INSTALLMENT_PRESETS = [1, 2, 3, 4, 5, 6, 10, 12];
+const LAST_PAYMENT_KEY = 'fecho_last_payment_method';
+
+function getCachedPaymentMethod(): PaymentMethod {
+  try {
+    const val = localStorage.getItem(LAST_PAYMENT_KEY);
+    if (
+      val === 'pix' ||
+      val === 'credit' ||
+      val === 'debit' ||
+      val === 'cash' ||
+      val === 'boleto' ||
+      val === 'transfer'
+    ) {
+      return val;
+    }
+  } catch {
+    // ignore
+  }
+  return 'pix';
+}
 
 export const TransactionModal: React.FC = () => {
   const { isOpen, close, editingTransaction, defaultType } = useTransactionModalStore();
@@ -47,7 +67,7 @@ export const TransactionModal: React.FC = () => {
   const [description, setDescription] = useState<string>('');
   const [categoryId, setCategoryId] = useState<string>('');
   const [accountId, setAccountId] = useState<string>('');
-  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('pix');
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>(() => getCachedPaymentMethod());
   const [date, setDate] = useState<string>(getTodayDateString());
   const [installmentsCount, setInstallmentsCount] = useState<number>(1);
   const [showDatePicker, setShowDatePicker] = useState<boolean>(false);
@@ -60,7 +80,26 @@ export const TransactionModal: React.FC = () => {
   const todayStr = getTodayDateString();
   const yesterdayStr = format(subDays(new Date(), 1), 'yyyy-MM-dd');
 
-  // Reset or initialize state when modal opens
+  // Hydrate payment method preference once at app mount (never during sheet slide-up)
+  useEffect(() => {
+    try {
+      if (localStorage.getItem(LAST_PAYMENT_KEY)) return;
+    } catch {
+      return;
+    }
+    settingsRepository.getPreferences().then((pref) => {
+      if (pref.lastPaymentMethod) {
+        try {
+          localStorage.setItem(LAST_PAYMENT_KEY, pref.lastPaymentMethod);
+        } catch {
+          // ignore
+        }
+        setPaymentMethod(pref.lastPaymentMethod);
+      }
+    });
+  }, []);
+
+  // Reset or initialize state synchronously on frame 0 when modal opens
   useEffect(() => {
     if (isOpen) {
       setShowDeleteSheet(false);
@@ -78,18 +117,16 @@ export const TransactionModal: React.FC = () => {
         setType(defaultType);
         setAmountCents(0);
         setDescription('');
-        setCategoryId('');
+        setCategoryId(categories[0]?.id || '');
+        if (!accountId && accounts[0]?.id) {
+          setAccountId(accounts[0].id);
+        }
         setDate(getTodayDateString());
         setInstallmentsCount(1);
-
-        // Load user preferred default payment method
-        settingsRepository.getPreferences().then((pref) => {
-          if (pref.lastPaymentMethod) {
-            setPaymentMethod(pref.lastPaymentMethod);
-          }
-        });
+        setPaymentMethod(getCachedPaymentMethod());
       }
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, editingTransaction, defaultType]);
 
   // Ensure selected category always belongs to the active type (expense vs income)
@@ -173,6 +210,13 @@ export const TransactionModal: React.FC = () => {
             )
           );
 
+          try {
+            localStorage.setItem(LAST_PAYMENT_KEY, 'credit');
+          } catch {
+            // ignore
+          }
+          await settingsRepository.updatePreferences({ lastPaymentMethod: 'credit' });
+
           showToast({
             message: `Compra parcelada em ${installmentsCount}x salva!`,
             type: 'success',
@@ -196,6 +240,11 @@ export const TransactionModal: React.FC = () => {
             status: 'confirmed',
           });
 
+          try {
+            localStorage.setItem(LAST_PAYMENT_KEY, paymentMethod);
+          } catch {
+            // ignore
+          }
           await settingsRepository.updatePreferences({ lastPaymentMethod: paymentMethod });
 
           showToast({
@@ -350,7 +399,7 @@ export const TransactionModal: React.FC = () => {
               <button
                 type="button"
                 onClick={() => setType('expense')}
-                className={`px-3.5 py-1.5 text-xs font-semibold rounded-xl transition-all active:scale-95 ${
+                className={`px-3.5 py-1.5 text-xs font-semibold rounded-xl transition-transform duration-100 active:scale-95 ${
                   type === 'expense'
                     ? 'bg-[var(--danger)] text-white shadow-sm'
                     : 'text-[var(--text-muted)] hover:text-[var(--text)]'
@@ -361,7 +410,7 @@ export const TransactionModal: React.FC = () => {
               <button
                 type="button"
                 onClick={() => setType('income')}
-                className={`px-3.5 py-1.5 text-xs font-semibold rounded-xl transition-all active:scale-95 ${
+                className={`px-3.5 py-1.5 text-xs font-semibold rounded-xl transition-transform duration-100 active:scale-95 ${
                   type === 'income'
                     ? 'bg-[var(--primary)] text-black shadow-sm'
                     : 'text-[var(--text-muted)] hover:text-[var(--text)]'
@@ -412,7 +461,7 @@ export const TransactionModal: React.FC = () => {
             <button
               type="button"
               onClick={() => setShowDatePicker((prev) => !prev)}
-              className={`shrink-0 flex items-center gap-1.5 px-3 min-h-[42px] rounded-xl border text-xs font-semibold transition-all active:scale-95 ${
+              className={`shrink-0 flex items-center gap-1.5 px-3 min-h-[42px] rounded-xl border text-xs font-semibold transition-transform duration-100 active:scale-95 ${
                 showDatePicker || date !== todayStr
                   ? 'border-[var(--primary)]/50 bg-[var(--primary)]/10 text-[var(--primary-bright)]'
                   : 'border-[var(--border)] bg-[var(--surface-2)] text-[var(--text-muted)] hover:text-[var(--text)]'
@@ -433,7 +482,7 @@ export const TransactionModal: React.FC = () => {
                   setDate(todayStr);
                   setShowDatePicker(false);
                 }}
-                className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-all ${
+                className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-transform duration-100 active:scale-95 ${
                   date === todayStr
                     ? 'bg-[var(--primary)] text-black'
                     : 'bg-[var(--surface)] text-[var(--text-muted)]'
@@ -447,7 +496,7 @@ export const TransactionModal: React.FC = () => {
                   setDate(yesterdayStr);
                   setShowDatePicker(false);
                 }}
-                className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-all ${
+                className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-transform duration-100 active:scale-95 ${
                   date === yesterdayStr
                     ? 'bg-[var(--primary)] text-black'
                     : 'bg-[var(--surface)] text-[var(--text-muted)]'
@@ -473,7 +522,7 @@ export const TransactionModal: React.FC = () => {
                   key={cat.id}
                   type="button"
                   onClick={() => setCategoryId(cat.id)}
-                  className={`flex flex-col items-center justify-center min-w-[62px] py-2 px-1.5 rounded-2xl border transition-all active:scale-95 shrink-0 ${
+                  className={`flex flex-col items-center justify-center min-w-[62px] py-2 px-1.5 rounded-2xl border transition-transform duration-100 active:scale-95 shrink-0 ${
                     isSelected
                       ? 'border-[var(--primary)] bg-[var(--surface-2)] shadow-sm text-[var(--text)]'
                       : 'border-[var(--border)] bg-[var(--surface)] text-[var(--text-muted)] hover:border-[var(--text-muted)]'
@@ -503,7 +552,7 @@ export const TransactionModal: React.FC = () => {
                   key={opt.value}
                   type="button"
                   onClick={() => setPaymentMethod(opt.value)}
-                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-xs font-semibold shrink-0 transition-all active:scale-95 min-h-[34px] ${
+                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-xs font-semibold shrink-0 transition-transform duration-100 active:scale-95 min-h-[34px] ${
                     isSelected
                       ? 'bg-white text-black border-white'
                       : 'bg-[var(--surface-2)] text-[var(--text-muted)] border-[var(--border)] hover:text-[var(--text)]'
@@ -529,7 +578,7 @@ export const TransactionModal: React.FC = () => {
                     key={acc.id}
                     type="button"
                     onClick={() => setAccountId(acc.id)}
-                    className={`px-2.5 py-1 rounded-xl border text-[11px] font-semibold shrink-0 transition-all active:scale-95 ${
+                    className={`px-2.5 py-1 rounded-xl border text-[11px] font-semibold shrink-0 transition-transform duration-100 active:scale-95 ${
                       isSelected
                         ? 'border-[var(--primary)] bg-[var(--primary)]/15 text-[var(--primary-bright)]'
                         : 'border-[var(--border)] bg-[var(--surface)] text-[var(--text-muted)]'
@@ -564,7 +613,7 @@ export const TransactionModal: React.FC = () => {
                       key={num}
                       type="button"
                       onClick={() => setInstallmentsCount(num)}
-                      className={`px-2.5 py-1 rounded-lg text-xs font-semibold shrink-0 transition-all active:scale-95 ${
+                      className={`px-2.5 py-1 rounded-lg text-xs font-semibold shrink-0 transition-transform duration-100 active:scale-95 ${
                         isSelected
                           ? 'bg-[var(--primary)] text-black'
                           : 'bg-[var(--surface)] text-[var(--text-muted)] border border-[var(--border)]'

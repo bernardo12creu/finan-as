@@ -48,7 +48,7 @@ export const TransactionsList: React.FC = () => {
     }
   }, [searchParams]);
 
-  const { transactions } = useTransactions({
+  const { transactions, isLoading } = useTransactions({
     search: searchTerm,
     type: selectedType,
     categoryId: selectedCategory,
@@ -264,7 +264,13 @@ export const TransactionsList: React.FC = () => {
       )}
 
       {/* Grouped Transactions List */}
-      {groupedTransactions.length === 0 ? (
+      {isLoading && groupedTransactions.length === 0 ? (
+        <div className="flex flex-col gap-2.5" aria-busy="true">
+          <div className="h-[62px] rounded-2xl bg-[var(--surface)] border border-[var(--border)] opacity-60" />
+          <div className="h-[62px] rounded-2xl bg-[var(--surface)] border border-[var(--border)] opacity-45" />
+          <div className="h-[62px] rounded-2xl bg-[var(--surface)] border border-[var(--border)] opacity-30" />
+        </div>
+      ) : groupedTransactions.length === 0 ? (
         <EmptyState
           icon={<Filter className="w-6 h-6" />}
           title="Nenhum lançamento encontrado"

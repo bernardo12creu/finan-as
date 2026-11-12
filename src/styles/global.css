@@ -119,21 +119,13 @@ input, textarea, [contenteditable="true"], .selectable {
   background: var(--gradient-fade);
 }
 
-/* Native iOS frosted translucency (GPU-layer promoted & tuned for 60/120Hz) */
+/* Native iOS OLED dark header/tabbar without per-frame backdrop-filter GPU stalls */
 .ios-glass-header {
-  background-color: rgba(12, 12, 14, 0.84);
-  -webkit-backdrop-filter: saturate(160%) blur(16px);
-  backdrop-filter: saturate(160%) blur(16px);
-  transform: translateZ(0);
-  will-change: transform;
+  background-color: rgba(11, 11, 13, 0.94);
 }
 
 .ios-glass-tabbar {
-  background-color: rgba(16, 16, 18, 0.9);
-  -webkit-backdrop-filter: saturate(160%) blur(16px);
-  backdrop-filter: saturate(160%) blur(16px);
-  transform: translateZ(0);
-  will-change: transform;
+  background-color: rgba(15, 15, 18, 0.96);
 }
 
 /* Hide scrollbars cleanly in horizontal carousels & filter bars */
@@ -145,20 +137,43 @@ input, textarea, [contenteditable="true"], .selectable {
   scrollbar-width: none;
 }
 
-/* Controlled internal vertical scrolling without outer page bounce */
+/* Native iOS momentum & elastic scroll inside dedicated scroll viewport */
 .ios-scroll {
   -webkit-overflow-scrolling: touch;
-  overscroll-behavior-y: contain;
   overscroll-behavior-x: none;
   touch-action: pan-y;
-  transform: translateZ(0);
 }
 
-/* Offscreen list item optimization for smooth 60/120Hz scrolling */
+/* Lightweight layout containment without Safari content-visibility pop-in stutter */
 .tx-row-perf {
-  contain: layout style paint;
-  content-visibility: auto;
-  contain-intrinsic-size: auto 66px;
+  contain: layout style;
+}
+
+/* Apple iOS native GPU-composited sheet timing curve (60Hz / 120Hz ProMotion / 144Hz) */
+.ios-sheet-backdrop {
+  transition: opacity 220ms cubic-bezier(0.32, 0.72, 0, 1);
+  will-change: opacity;
+}
+
+.ios-sheet-panel {
+  transition: transform 320ms cubic-bezier(0.32, 0.72, 0, 1);
+  will-change: transform;
+}
+
+@keyframes iosToastIn {
+  from {
+    opacity: 0;
+    transform: translate3d(0, -18px, 0) scale(0.94);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+.ios-toast-enter {
+  animation: iosToastIn 220ms cubic-bezier(0.32, 0.72, 0, 1) forwards;
+  will-change: transform, opacity;
 }
 
 /* Glow effect for FAB button */

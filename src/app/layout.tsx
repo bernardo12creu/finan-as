@@ -118,13 +118,13 @@ export const AppLayout: React.FC = () => {
       const step = (now: number) => {
         const dt = Math.min(32, Math.max(1, now - prev));
         prev = now;
-        if (!scrollRef.current || Math.abs(v) < 0.03) {
+        if (!scrollRef.current || Math.abs(v) < 0.02) {
           state.inertiaRafId = null;
           return;
         }
         scrollRef.current.scrollTop += v * dt;
-        // Frame-rate independent exponential friction (identical feel on 60Hz, 120Hz, 144Hz)
-        v *= Math.pow(0.94, dt / 16.6667);
+        // Frame-rate independent UIScrollView-like exponential deceleration (60Hz / 120Hz ProMotion / 144Hz)
+        v *= Math.pow(0.965, dt / 16.6667);
         state.inertiaRafId = requestAnimationFrame(step);
       };
 

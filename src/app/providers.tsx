@@ -14,6 +14,23 @@ export const AppProviders: React.FC = () => {
   const bootstrappedUserIdRef = useRef<string | null>(null);
 
   // Silent automatic PWA Service Worker updates so mobile clients always get fresh iOS builds
+  useEffect(() => {
+    if (!('serviceWorker' in navigator)) return;
+    let hadController = Boolean(navigator.serviceWorker.controller);
+    let reloading = false;
+    const onControllerChange = () => {
+      if (hadController && !reloading) {
+        reloading = true;
+        window.location.reload();
+      }
+      hadController = true;
+    };
+    navigator.serviceWorker.addEventListener('controllerchange', onControllerChange);
+    return () => {
+      navigator.serviceWorker.removeEventListener('controllerchange', onControllerChange);
+    };
+  }, []);
+
   useRegisterSW({
     onRegisteredSW(_swUrl, r) {
       if (!r) return;

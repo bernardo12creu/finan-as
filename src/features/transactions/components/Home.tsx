@@ -349,13 +349,13 @@ export const Home: React.FC = () => {
           </button>
         </div>
 
-        <div className="flex gap-3 overflow-x-auto pb-1 no-scrollbar touch-pan-xy overscroll-x-contain -mx-4 px-4">
+        <div className="flex gap-3 overflow-x-auto pb-1 no-scrollbar touch-pan-xy -mx-4 px-4">
           {topCategories.map(({ category, spent, budget, status }) => (
             <button
               key={category.id}
               type="button"
               onClick={() => navigate(`/lancamentos?category=${encodeURIComponent(category.id)}`)}
-              className="flex flex-col items-center justify-between p-3.5 rounded-3xl bg-[var(--surface)] border border-[var(--border)] hover:border-[var(--primary)]/40 active:scale-[0.97] transition-transform duration-100 min-w-[130px] shrink-0 min-h-[140px] text-left"
+              className="touch-pan-xy flex flex-col items-center justify-between p-3.5 rounded-3xl bg-[var(--surface)] border border-[var(--border)] hover:border-[var(--primary)]/40 active:scale-[0.97] transition-transform duration-100 min-w-[130px] shrink-0 min-h-[140px] text-left"
             >
               <div className="flex items-center justify-between w-full">
                 <span className="text-xs font-semibold text-[var(--text)] truncate max-w-[80px]">

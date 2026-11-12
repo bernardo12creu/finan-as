@@ -137,9 +137,9 @@ input, textarea, [contenteditable="true"], .selectable {
   scrollbar-width: none;
 }
 
-/* Allow both horizontal strip swiping and vertical page scrolling seamlessly */
+/* Allow both horizontal strip swiping and vertical page scrolling seamlessly (even on <button> children) */
 .touch-pan-xy {
-  touch-action: pan-x pan-y;
+  touch-action: pan-x pan-y !important;
 }
 
 /* Native iOS momentum & elastic scroll inside dedicated scroll viewport */

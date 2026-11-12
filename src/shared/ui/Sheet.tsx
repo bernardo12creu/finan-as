@@ -9,6 +9,64 @@ export interface SheetProps {
   footer?: React.ReactNode;
   children: React.ReactNode;
   maxHeight?: string;
+  keepMounted?: boolean;
+}
+
+/**
+ * Generates GPU-ready Web Animations API keyframes from an analytical damped spring
+ * (UISpringTimingParameters feel) so the browser composites every frame off the main thread
+ * at the display's native refresh rate (60Hz / 90Hz / 120Hz ProMotion / 144Hz).
+ */
+function buildSpringKeyframes(
+  fromY: number,
+  toY: number,
+  initialVelocityPxPerSec: number,
+  durationMs: number,
+  stiffness = 410,
+  damping = 38
+): Keyframe[] {
+  const steps = 24;
+  const totalSec = durationMs / 1000;
+  const dt = totalSec / steps;
+  let y = fromY;
+  let v = initialVelocityPxPerSec;
+
+  const keyframes: Keyframe[] = [{ transform: `translate3d(0, ${fromY.toFixed(2)}px, 0)` }];
+
+  for (let i = 1; i < steps; i++) {
+    // 2 sub-steps per sample for numerical stability
+    const subDt = dt / 2;
+    for (let k = 0; k < 2; k++) {
+      const accel = -stiffness * (y - toY) - damping * v;
+      v += accel * subDt;
+      y += v * subDt;
+    }
+    keyframes.push({ transform: `translate3d(0, ${y.toFixed(2)}px, 0)` });
+  }
+
+  keyframes.push({ transform: `translate3d(0, ${toY.toFixed(2)}px, 0)` });
+  return keyframes;
+}
+
+function getLiveTranslateY(el: HTMLElement | null, fallbackY: number): number {
+  if (!el || typeof window === 'undefined' || typeof window.getComputedStyle !== 'function') {
+    return fallbackY;
+  }
+  const transform = window.getComputedStyle(el).transform;
+  if (!transform || transform === 'none') return fallbackY;
+  try {
+    if (typeof DOMMatrix !== 'undefined') {
+      return new DOMMatrix(transform).m42;
+    }
+    const match = transform.match(/matrix.*\((.+)\)/);
+    if (match) {
+      const parts = match[1].split(',');
+      return parseFloat(parts[parts.length - 1]) || fallbackY;
+    }
+  } catch {
+    // ignore
+  }
+  return fallbackY;
 }
 
 export const Sheet: React.FC<SheetProps> = ({
@@ -19,9 +77,11 @@ export const Sheet: React.FC<SheetProps> = ({
   footer,
   children,
   maxHeight = 'calc(100% - max(env(safe-area-inset-top, 0px), 10px) - 6px)',
+  keepMounted = false,
 }) => {
-  const [rendered, setRendered] = useState(isOpen);
-  const renderedRef = useRef(isOpen);
+  const [rendered, setRendered] = useState(isOpen || keepMounted);
+  const [containerHidden, setContainerHidden] = useState(!isOpen);
+  const isMountedOpenRef = useRef(isOpen);
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
 
@@ -29,24 +89,16 @@ export const Sheet: React.FC<SheetProps> = ({
   const backdropRef = useRef<HTMLDivElement>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
 
-  const springRef = useRef<{
-    rafId: number | null;
-    y: number;
-    v: number;
-    targetY: number;
-    onSettled: (() => void) | null;
-  }>({
-    rafId: null,
-    y: 600,
-    v: 0,
-    targetY: 0,
-    onSettled: null,
-  });
+  const panelAnimRef = useRef<Animation | null>(null);
+  const backdropAnimRef = useRef<Animation | null>(null);
+  const currentYRef = useRef<number>(isOpen ? 0 : 620);
+  const suppressClickUntilRef = useRef<number>(0);
 
   const dragRef = useRef<{
     tracking: boolean;
     mode: 'pending' | 'sheet' | 'ignored';
     fromHandle: boolean;
+    fromHorizontalStrip: boolean;
     startX: number;
     startY: number;
     lastY: number;
@@ -58,24 +110,38 @@ export const Sheet: React.FC<SheetProps> = ({
     tracking: false,
     mode: 'pending',
     fromHandle: false,
+    fromHorizontalStrip: false,
     startX: 0,
     startY: 0,
     lastY: 0,
     lastTime: 0,
     velocityY: 0,
     offsetY: 0,
-    panelHeight: 540,
+    panelHeight: 560,
   });
 
-  const stopSpring = () => {
-    if (springRef.current.rafId !== null) {
-      cancelAnimationFrame(springRef.current.rafId);
-      springRef.current.rafId = null;
+  const cancelAnimations = () => {
+    if (panelAnimRef.current) {
+      try {
+        currentYRef.current = getLiveTranslateY(panelRef.current, currentYRef.current);
+        panelAnimRef.current.cancel();
+      } catch {
+        // ignore
+      }
+      panelAnimRef.current = null;
     }
-    springRef.current.onSettled = null;
+    if (backdropAnimRef.current) {
+      try {
+        backdropAnimRef.current.cancel();
+      } catch {
+        // ignore
+      }
+      backdropAnimRef.current = null;
+    }
   };
 
-  const applyFrame = (y: number, panelHeight: number) => {
+  const applyImmediateFrame = (y: number, panelHeight: number) => {
+    currentYRef.current = y;
     if (panelRef.current) {
       panelRef.current.style.transform = `translate3d(0, ${y.toFixed(2)}px, 0)`;
     }
@@ -86,88 +152,116 @@ export const Sheet: React.FC<SheetProps> = ({
     }
   };
 
-  // VSync-locked critically/smoothly damped spring solver (scales automatically to 60/90/120/144Hz)
-  const runSpring = (
-    targetY: number,
-    initialVelocity = 0,
-    stiffness = 430,
-    damping = 36,
-    onSettled?: () => void
+  const animateSheet = (
+    fromY: number,
+    toY: number,
+    initialVelocity: number,
+    durationMs: number,
+    stiffness: number,
+    damping: number,
+    onDone?: () => void
   ) => {
-    stopSpring();
-    const s = springRef.current;
-    s.targetY = targetY;
-    s.v = initialVelocity;
-    s.onSettled = onSettled ?? null;
+    const panel = panelRef.current;
+    const backdrop = backdropRef.current;
+    const panelHeight = panel?.offsetHeight || 560;
 
-    const panelHeight = panelRef.current?.offsetHeight || 540;
-    let prev = performance.now();
+    cancelAnimations();
+    applyImmediateFrame(fromY, panelHeight);
 
-    const tick = (now: number) => {
-      // Sub-step physics safely to keep spring unconditionally stable at any display Hz
-      const totalDt = Math.min(0.032, Math.max(0.001, (now - prev) / 1000));
-      prev = now;
-      const steps = totalDt > 0.012 ? 2 : 1;
-      const dt = totalDt / steps;
+    const startOpacity = Math.max(0, Math.min(1, 1 - fromY / Math.max(260, panelHeight)));
+    const endOpacity = toY <= 1 ? 1 : 0;
 
-      for (let i = 0; i < steps; i++) {
-        const displacement = s.y - s.targetY;
-        const accel = -stiffness * displacement - damping * s.v;
-        s.v += accel * dt;
-        s.y += s.v * dt;
+    if (!panel || typeof panel.animate !== 'function') {
+      applyImmediateFrame(toY, panelHeight);
+      onDone?.();
+      return;
+    }
+
+    const keyframes = buildSpringKeyframes(fromY, toY, initialVelocity, durationMs, stiffness, damping);
+    const anim = panel.animate(keyframes, {
+      duration: durationMs,
+      easing: 'linear',
+      fill: 'forwards',
+    });
+    panelAnimRef.current = anim;
+
+    if (backdrop && typeof backdrop.animate === 'function') {
+      const bAnim = backdrop.animate(
+        [{ opacity: startOpacity }, { opacity: endOpacity }],
+        {
+          duration: Math.min(durationMs, 260),
+          easing: 'cubic-bezier(0.22, 1, 0.36, 1)',
+          fill: 'forwards',
+        }
+      );
+      backdropAnimRef.current = bAnim;
+    }
+
+    anim.onfinish = () => {
+      if (panelAnimRef.current !== anim) return;
+      try {
+        anim.cancel();
+      } catch {
+        // ignore
       }
-
-      // Snap cleanly once imperceptible
-      if (Math.abs(s.y - s.targetY) < 0.4 && Math.abs(s.v) < 8) {
-        s.y = s.targetY;
-        s.v = 0;
-        applyFrame(s.y, panelHeight);
-        s.rafId = null;
-        const cb = s.onSettled;
-        s.onSettled = null;
-        cb?.();
-        return;
+      panelAnimRef.current = null;
+      if (backdropAnimRef.current) {
+        try {
+          backdropAnimRef.current.cancel();
+        } catch {
+          // ignore
+        }
+        backdropAnimRef.current = null;
       }
-
-      applyFrame(s.y, panelHeight);
-      s.rafId = requestAnimationFrame(tick);
+      applyImmediateFrame(toY, panelHeight);
+      onDone?.();
     };
-
-    s.rafId = requestAnimationFrame(tick);
   };
 
   useEffect(() => {
     if (isOpen) {
-      renderedRef.current = true;
+      isMountedOpenRef.current = true;
       setRendered(true);
-    } else if (renderedRef.current) {
+      setContainerHidden(false);
+    } else if (isMountedOpenRef.current) {
+      isMountedOpenRef.current = false;
+      const liveY = getLiveTranslateY(panelRef.current, currentYRef.current);
       const h = (panelRef.current?.offsetHeight || 560) + 28;
-      runSpring(h, Math.max(springRef.current.v, 220), 390, 38, () => {
-        renderedRef.current = false;
-        setRendered(false);
+      animateSheet(liveY, h, 240, 290, 380, 38, () => {
+        setContainerHidden(true);
+        if (!keepMounted) {
+          setRendered(false);
+        }
       });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen]);
+  }, [isOpen, keepMounted]);
 
   useLayoutEffect(() => {
     if (!rendered || !isOpen) return;
-    const h = panelRef.current?.offsetHeight || 560;
-    // If re-opening mid-close, spring cleanly from current position; otherwise start offscreen
-    if (springRef.current.y >= h || !springRef.current.rafId) {
-      springRef.current.y = h;
-      springRef.current.v = 0;
+    setContainerHidden(false);
+    const panel = panelRef.current;
+    const h = panel?.offsetHeight || 580;
+    const liveY = getLiveTranslateY(panel, h);
+    const startY = liveY >= h - 4 || containerHidden ? h : liveY;
+    if (bodyRef.current) {
+      bodyRef.current.scrollTop = 0;
     }
-    applyFrame(springRef.current.y, h);
-    const frame = requestAnimationFrame(() => {
-      runSpring(0, 0, 440, 36);
-    });
-    return () => cancelAnimationFrame(frame);
+    animateSheet(startY, 0, 0, 380, 410, 38);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rendered, isOpen]);
 
+  // Initialize off-screen position cleanly once on mount without letting React overwrite style on re-renders
+  useLayoutEffect(() => {
+    if (!rendered) return;
+    if (!isOpen) {
+      applyImmediateFrame(620, 580);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rendered]);
+
   // Cleanup on unmount
-  useEffect(() => stopSpring, []);
+  useEffect(() => cancelAnimations, []);
 
   // Handle escape key
   useEffect(() => {
@@ -180,7 +274,7 @@ export const Sheet: React.FC<SheetProps> = ({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isOpen]);
 
-  // Non-passive touchmove while active on panel so body pull-to-dismiss blocks Safari bounce cleanly
+  // Non-passive touchmove so pulling down anywhere (including on categories) glides sheet 1:1
   useEffect(() => {
     const panel = panelRef.current;
     if (!rendered || !panel) return;
@@ -199,19 +293,25 @@ export const Sheet: React.FC<SheetProps> = ({
         if (d.fromHandle) {
           if (Math.abs(totalDy) > 3 || Math.abs(totalDx) > 3) {
             d.mode = 'sheet';
-            stopSpring();
+            cancelAnimations();
           } else {
             return;
           }
         } else {
-          // Wait for clear directional intent before deciding between inner scroll vs sheet drag
+          // Wait for minimal directional intent
           if (Math.abs(totalDx) < 6 && Math.abs(totalDy) < 6) return;
 
+          // If touch started on a horizontal carousel and user moves sideways, let carousel scroll!
+          if (d.fromHorizontalStrip && Math.abs(totalDx) >= Math.abs(totalDy)) {
+            d.mode = 'ignored';
+            return;
+          }
+
           const bodyAtTop = !bodyRef.current || bodyRef.current.scrollTop <= 1;
-          if (bodyAtTop && totalDy > 0 && Math.abs(totalDy) >= Math.abs(totalDx) * 1.1) {
+          if (bodyAtTop && totalDy > 0 && Math.abs(totalDy) >= Math.abs(totalDx) * 1.05) {
             d.mode = 'sheet';
-            d.startY = y; // smooth zero-jump handoff
-            stopSpring();
+            d.startY = y; // zero-jump handoff
+            cancelAnimations();
           } else {
             d.mode = 'ignored';
             return;
@@ -232,8 +332,7 @@ export const Sheet: React.FC<SheetProps> = ({
         const rawDelta = y - d.startY;
         const clamped = rawDelta < 0 ? rawDelta * 0.16 : rawDelta;
         d.offsetY = clamped;
-        springRef.current.y = clamped;
-        applyFrame(clamped, d.panelHeight);
+        applyImmediateFrame(clamped, d.panelHeight);
       }
     };
 
@@ -245,16 +344,20 @@ export const Sheet: React.FC<SheetProps> = ({
       d.mode = 'pending';
 
       if (!wasSheetDrag) return;
+      suppressClickUntilRef.current = performance.now() + 280;
 
-      if (d.offsetY > 105 || d.velocityY > 480) {
+      if (d.offsetY > 95 || d.velocityY > 420) {
         const target = d.panelHeight + 28;
-        runSpring(target, Math.max(d.velocityY, 320), 380, 36, () => {
-          renderedRef.current = false;
-          setRendered(false);
+        isMountedOpenRef.current = false;
+        animateSheet(d.offsetY, target, Math.max(d.velocityY, 320), 270, 380, 38, () => {
+          setContainerHidden(true);
+          if (!keepMounted) {
+            setRendered(false);
+          }
           onCloseRef.current();
         });
       } else {
-        runSpring(0, d.velocityY * 0.45, 450, 35);
+        animateSheet(d.offsetY, 0, d.velocityY * 0.4, 320, 440, 38);
       }
     };
 
@@ -268,18 +371,17 @@ export const Sheet: React.FC<SheetProps> = ({
       panel.removeEventListener('touchcancel', onTouchEnd);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rendered]);
+  }, [rendered, keepMounted]);
 
   const handlePanelTouchStart = (e: React.TouchEvent<HTMLDivElement>) => {
-    if (e.touches.length !== 1 || !panelRef.current) return;
+    if (!isOpen || e.touches.length !== 1 || !panelRef.current) return;
     const target = e.target as HTMLElement | null;
     if (
       target &&
       (target.tagName === 'INPUT' ||
         target.tagName === 'TEXTAREA' ||
         target.tagName === 'SELECT' ||
-        target.closest('[data-no-sheet-drag]') ||
-        target.closest('[data-horizontal-scroll]'))
+        target.closest('[data-no-sheet-drag]'))
     ) {
       dragRef.current.tracking = false;
       return;
@@ -287,30 +389,47 @@ export const Sheet: React.FC<SheetProps> = ({
 
     const touch = e.touches[0];
     const fromHandle = Boolean(target?.closest('[data-sheet-handle]'));
+    const fromHorizontalStrip = Boolean(target?.closest('[data-horizontal-scroll]'));
+    const liveY = getLiveTranslateY(panelRef.current, currentYRef.current);
 
     dragRef.current = {
       tracking: true,
       mode: 'pending',
       fromHandle,
+      fromHorizontalStrip,
       startX: touch.clientX,
       startY: touch.clientY,
       lastY: touch.clientY,
       lastTime: performance.now(),
       velocityY: 0,
-      offsetY: Math.max(0, springRef.current.y),
-      panelHeight: panelRef.current.offsetHeight || 540,
+      offsetY: Math.max(0, liveY),
+      panelHeight: panelRef.current.offsetHeight || 560,
     };
+  };
+
+  const handlePanelClickCapture = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (performance.now() < suppressClickUntilRef.current) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
   };
 
   if (!rendered) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center">
+    <div
+      aria-hidden={containerHidden}
+      style={
+        containerHidden
+          ? { visibility: 'hidden', pointerEvents: 'none' }
+          : { visibility: 'visible', pointerEvents: 'auto' }
+      }
+      className="fixed inset-0 z-50 flex items-end justify-center"
+    >
       {/* Backdrop */}
       <div
         ref={backdropRef}
         onClick={onClose}
-        style={{ opacity: 0 }}
         className="fixed inset-0 bg-black/75 ios-sheet-backdrop"
       />
 
@@ -318,7 +437,8 @@ export const Sheet: React.FC<SheetProps> = ({
       <div
         ref={panelRef}
         onTouchStart={handlePanelTouchStart}
-        style={{ maxHeight, transform: 'translate3d(0, 100%, 0)' }}
+        onClickCapture={handlePanelClickCapture}
+        style={{ maxHeight }}
         className="relative z-10 w-full max-w-md rounded-t-[28px] bg-[#141416] border-t border-x border-white/[0.09] shadow-2xl flex flex-col overflow-hidden ios-sheet-panel"
       >
         {/* Drag Handle Indicator + Interactive Header Zone */}

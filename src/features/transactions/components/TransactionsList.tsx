@@ -188,7 +188,7 @@ export const TransactionsList: React.FC = () => {
       </div>
 
       {/* Filter Chips Bar */}
-      <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar touch-pan-xy overscroll-x-contain -mx-4 px-4">
+      <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar touch-pan-xy -mx-4 px-4">
         {hasActiveFilters && (
           <Chip onClick={clearFilters} className="bg-[var(--danger)]/20 text-[var(--danger)]">
             Limpar filtros

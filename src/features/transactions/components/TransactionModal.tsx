@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useCallback } from 'react';
 import { format, subDays } from 'date-fns';
 import { Sheet } from '@/shared/ui/Sheet';
 import { NumericKeypad } from '@/shared/ui/NumericKeypad';
@@ -99,8 +99,8 @@ export const TransactionModal: React.FC = () => {
     });
   }, []);
 
-  // Reset or initialize state synchronously on frame 0 when modal opens
-  useEffect(() => {
+  // Reset or initialize state synchronously before browser paint when modal opens
+  useLayoutEffect(() => {
     if (isOpen) {
       setShowDeleteSheet(false);
       setShowDatePicker(false);
@@ -355,6 +355,7 @@ export const TransactionModal: React.FC = () => {
       <Sheet
         isOpen={isOpen}
         onClose={close}
+        keepMounted
         title={
           editingTransaction
             ? 'Editar Lançamento'
@@ -516,7 +517,7 @@ export const TransactionModal: React.FC = () => {
           {/* Category Horizontal Quick Selector */}
           <div
             data-horizontal-scroll="true"
-            className="flex gap-2 overflow-x-auto pb-0.5 no-scrollbar touch-pan-xy overscroll-x-contain"
+            className="flex gap-2 overflow-x-auto pb-0.5 no-scrollbar touch-pan-xy"
           >
             {categories.map((cat) => {
               const isSelected = cat.id === categoryId;
@@ -525,7 +526,7 @@ export const TransactionModal: React.FC = () => {
                   key={cat.id}
                   type="button"
                   onClick={() => setCategoryId(cat.id)}
-                  className={`flex flex-col items-center justify-center min-w-[62px] py-2 px-1.5 rounded-2xl border transition-transform duration-100 active:scale-95 shrink-0 ${
+                  className={`touch-pan-xy flex flex-col items-center justify-center min-w-[62px] py-2 px-1.5 rounded-2xl border transition-transform duration-100 active:scale-95 shrink-0 ${
                     isSelected
                       ? 'border-[var(--primary)] bg-[var(--surface-2)] shadow-sm text-[var(--text)]'
                       : 'border-[var(--border)] bg-[var(--surface)] text-[var(--text-muted)] hover:border-[var(--text-muted)]'
@@ -548,7 +549,7 @@ export const TransactionModal: React.FC = () => {
           {/* One-Tap Payment Method Chips (No clunky iOS picker wheel) */}
           <div
             data-horizontal-scroll="true"
-            className="flex gap-1.5 overflow-x-auto pb-0.5 no-scrollbar touch-pan-xy overscroll-x-contain"
+            className="flex gap-1.5 overflow-x-auto pb-0.5 no-scrollbar touch-pan-xy"
           >
             {PAYMENT_OPTIONS.map((opt) => {
               const Icon = opt.icon;
@@ -558,7 +559,7 @@ export const TransactionModal: React.FC = () => {
                   key={opt.value}
                   type="button"
                   onClick={() => setPaymentMethod(opt.value)}
-                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-xs font-semibold shrink-0 transition-transform duration-100 active:scale-95 min-h-[34px] ${
+                  className={`touch-pan-xy inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-xs font-semibold shrink-0 transition-transform duration-100 active:scale-95 min-h-[34px] ${
                     isSelected
                       ? 'bg-white text-black border-white'
                       : 'bg-[var(--surface-2)] text-[var(--text-muted)] border-[var(--border)] hover:text-[var(--text)]'
@@ -575,7 +576,7 @@ export const TransactionModal: React.FC = () => {
           {accounts.length > 1 && (
             <div
               data-horizontal-scroll="true"
-              className="flex items-center gap-1.5 overflow-x-auto pb-0.5 no-scrollbar touch-pan-xy overscroll-x-contain"
+              className="flex items-center gap-1.5 overflow-x-auto pb-0.5 no-scrollbar touch-pan-xy"
             >
               <span className="text-[11px] text-[var(--text-muted)] font-medium shrink-0 mr-0.5">
                 Conta:
@@ -587,7 +588,7 @@ export const TransactionModal: React.FC = () => {
                     key={acc.id}
                     type="button"
                     onClick={() => setAccountId(acc.id)}
-                    className={`px-2.5 py-1 rounded-xl border text-[11px] font-semibold shrink-0 transition-transform duration-100 active:scale-95 ${
+                    className={`touch-pan-xy px-2.5 py-1 rounded-xl border text-[11px] font-semibold shrink-0 transition-transform duration-100 active:scale-95 ${
                       isSelected
                         ? 'border-[var(--primary)] bg-[var(--primary)]/15 text-[var(--primary-bright)]'
                         : 'border-[var(--border)] bg-[var(--surface)] text-[var(--text-muted)]'
@@ -616,7 +617,7 @@ export const TransactionModal: React.FC = () => {
               </div>
               <div
                 data-horizontal-scroll="true"
-                className="flex gap-1.5 overflow-x-auto no-scrollbar touch-pan-xy overscroll-x-contain"
+                className="flex gap-1.5 overflow-x-auto no-scrollbar touch-pan-xy"
               >
                 {INSTALLMENT_PRESETS.map((num) => {
                   const isSelected = installmentsCount === num;
@@ -625,7 +626,7 @@ export const TransactionModal: React.FC = () => {
                       key={num}
                       type="button"
                       onClick={() => setInstallmentsCount(num)}
-                      className={`px-2.5 py-1 rounded-lg text-xs font-semibold shrink-0 transition-transform duration-100 active:scale-95 ${
+                      className={`touch-pan-xy px-2.5 py-1 rounded-lg text-xs font-semibold shrink-0 transition-transform duration-100 active:scale-95 ${
                         isSelected
                           ? 'bg-[var(--primary)] text-black'
                           : 'bg-[var(--surface)] text-[var(--text-muted)] border border-[var(--border)]'

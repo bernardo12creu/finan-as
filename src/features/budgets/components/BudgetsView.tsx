@@ -207,6 +207,11 @@ export const BudgetsView: React.FC = () => {
         isOpen={isEditing}
         onClose={() => setIsEditing(false)}
         title={selectedCat ? `Limite: ${selectedCat.name}` : 'Limite Mensal Total'}
+        footer={
+          <Button variant="primary" size="lg" fullWidth onClick={handleSaveBudget}>
+            Salvar Limite
+          </Button>
+        }
       >
         <div className="flex flex-col gap-4">
           <div className="text-center py-2">
@@ -219,12 +224,9 @@ export const BudgetsView: React.FC = () => {
           </div>
 
           <NumericKeypad
+            compact
             onKeyPress={(key) => setEditingAmountCents((prev) => keypadInputToCents(prev, key))}
           />
-
-          <Button variant="primary" size="lg" fullWidth onClick={handleSaveBudget} className="mt-2">
-            Salvar Limite
-          </Button>
         </div>
       </Sheet>
     </div>

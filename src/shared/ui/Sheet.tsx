@@ -6,6 +6,8 @@ export interface SheetProps {
   isOpen: boolean;
   onClose: () => void;
   title?: string;
+  headerAction?: React.ReactNode;
+  footer?: React.ReactNode;
   children: React.ReactNode;
   maxHeight?: string;
 }
@@ -14,8 +16,10 @@ export const Sheet: React.FC<SheetProps> = ({
   isOpen,
   onClose,
   title,
+  headerAction,
+  footer,
   children,
-  maxHeight = 'calc(100% - max(env(safe-area-inset-top, 0px), 12px) - 10px)',
+  maxHeight = 'calc(100% - max(env(safe-area-inset-top, 0px), 10px) - 6px)',
 }) => {
   const dragControls = useDragControls();
 
@@ -73,35 +77,53 @@ export const Sheet: React.FC<SheetProps> = ({
               }
             }}
             style={{ maxHeight }}
-            className="relative z-10 w-full max-w-md rounded-t-[28px] bg-[#141416]/95 backdrop-blur-2xl border-t border-x border-white/[0.09] shadow-2xl flex flex-col overflow-hidden pb-[calc(env(safe-area-inset-bottom,0px)+16px)]"
+            className="relative z-10 w-full max-w-md rounded-t-[28px] bg-[#141416]/95 backdrop-blur-2xl border-t border-x border-white/[0.09] shadow-2xl flex flex-col overflow-hidden"
           >
             {/* Drag Handle Indicator + Interactive Header Zone */}
             <div
               onPointerDown={(e) => dragControls.start(e)}
               className="touch-none cursor-grab active:cursor-grabbing shrink-0"
             >
-              <div className="w-full flex items-center justify-center pt-3 pb-1.5">
+              <div className="w-full flex items-center justify-center pt-2.5 pb-1">
                 <div className="w-10 h-1 rounded-full bg-white/20" />
               </div>
 
               {title ? (
-                <div className="flex items-center justify-between px-6 py-2.5 border-b border-white/[0.06]">
+                <div className="flex items-center justify-between px-5 py-2 border-b border-white/[0.06]">
                   <h3 className="text-base font-bold tracking-tight text-[var(--text)]">{title}</h3>
-                  <button
-                    type="button"
-                    onClick={onClose}
+                  <div
+                    className="flex items-center gap-1.5"
                     onPointerDown={(e) => e.stopPropagation()}
-                    className="w-8 h-8 flex items-center justify-center -mr-1 text-[var(--text-muted)] hover:text-[var(--text)] rounded-full bg-[var(--surface-2)]/80 active:scale-90 transition-transform"
-                    aria-label="Fechar"
                   >
-                    <X className="w-4 h-4" />
-                  </button>
+                    {headerAction}
+                    <button
+                      type="button"
+                      onClick={onClose}
+                      className="w-8 h-8 flex items-center justify-center -mr-1 text-[var(--text-muted)] hover:text-[var(--text)] rounded-full bg-[var(--surface-2)]/80 active:scale-90 transition-transform"
+                      aria-label="Fechar"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
                 </div>
               ) : null}
             </div>
 
             {/* Scrollable Body */}
-            <div className="flex-1 overflow-y-auto ios-scroll px-6 py-4">{children}</div>
+            <div
+              className={`flex-1 min-h-0 overflow-y-auto ios-scroll touch-pan-y px-5 py-3.5 ${
+                footer ? '' : 'pb-[calc(env(safe-area-inset-bottom,0px)+20px)]'
+              }`}
+            >
+              {children}
+            </div>
+
+            {/* Always-visible Sticky Footer Action Bar */}
+            {footer ? (
+              <div className="shrink-0 border-t border-white/[0.08] bg-[#141416]/95 backdrop-blur-xl px-5 pt-3 pb-[calc(max(env(safe-area-inset-bottom,0px),12px)+4px)]">
+                {footer}
+              </div>
+            ) : null}
           </motion.div>
         </div>
       )}

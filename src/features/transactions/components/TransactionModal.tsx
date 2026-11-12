@@ -1,17 +1,44 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { format, subDays } from 'date-fns';
 import { Sheet } from '@/shared/ui/Sheet';
 import { NumericKeypad } from '@/shared/ui/NumericKeypad';
 import { Button } from '@/shared/ui/Button';
 import { CategoryIcon } from '@/shared/ui/CategoryIcon';
 import { formatCentsToBRL, keypadInputToCents } from '@/shared/lib/money';
-import { getTodayDateString } from '@/shared/lib/dates';
+import { getTodayDateString, formatFriendlyDate } from '@/shared/lib/dates';
 import { generateInstallmentPlan } from '@/shared/lib/installments';
 import { useCategories, useAccounts } from '@/data/hooks';
 import { transactionRepository, settingsRepository } from '@/data/repositories/local/localRepository';
 import { useTransactionModalStore } from '../transactionModalStore';
 import { showToast } from '@/shared/ui/toastStore';
 import { PaymentMethod, TransactionType } from '@/data/db';
-import { ChevronDown, Calendar, CreditCard, Tag, Trash2 } from 'lucide-react';
+import {
+  Calendar,
+  CreditCard,
+  Trash2,
+  Zap,
+  Banknote,
+  Receipt,
+  ArrowLeftRight,
+  Wallet,
+  Tag,
+  Check,
+} from 'lucide-react';
+
+const PAYMENT_OPTIONS: Array<{
+  value: PaymentMethod;
+  label: string;
+  icon: React.FC<{ className?: string }>;
+}> = [
+  { value: 'pix', label: 'PIX', icon: Zap },
+  { value: 'credit', label: 'Crédito', icon: CreditCard },
+  { value: 'debit', label: 'Débito', icon: Wallet },
+  { value: 'cash', label: 'Dinheiro', icon: Banknote },
+  { value: 'boleto', label: 'Boleto', icon: Receipt },
+  { value: 'transfer', label: 'Transf.', icon: ArrowLeftRight },
+];
+
+const INSTALLMENT_PRESETS = [1, 2, 3, 4, 5, 6, 10, 12];
 
 export const TransactionModal: React.FC = () => {
   const { isOpen, close, editingTransaction, defaultType } = useTransactionModalStore();
@@ -23,17 +50,21 @@ export const TransactionModal: React.FC = () => {
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('pix');
   const [date, setDate] = useState<string>(getTodayDateString());
   const [installmentsCount, setInstallmentsCount] = useState<number>(1);
-  const [showAdvanced, setShowAdvanced] = useState<boolean>(false);
+  const [showDatePicker, setShowDatePicker] = useState<boolean>(false);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [showDeleteSheet, setShowDeleteSheet] = useState<boolean>(false);
 
   const { categories } = useCategories(type);
   const { accounts } = useAccounts();
 
+  const todayStr = getTodayDateString();
+  const yesterdayStr = format(subDays(new Date(), 1), 'yyyy-MM-dd');
+
   // Reset or initialize state when modal opens
   useEffect(() => {
     if (isOpen) {
       setShowDeleteSheet(false);
+      setShowDatePicker(false);
       if (editingTransaction) {
         setType(editingTransaction.type);
         setAmountCents(editingTransaction.amountCents);
@@ -43,14 +74,13 @@ export const TransactionModal: React.FC = () => {
         setPaymentMethod(editingTransaction.paymentMethod);
         setDate(editingTransaction.date);
         setInstallmentsCount(editingTransaction.installment?.total || 1);
-        setShowAdvanced(true);
       } else {
         setType(defaultType);
         setAmountCents(0);
         setDescription('');
+        setCategoryId('');
         setDate(getTodayDateString());
         setInstallmentsCount(1);
-        setShowAdvanced(false);
 
         // Load user preferred default payment method
         settingsRepository.getPreferences().then((pref) => {
@@ -62,9 +92,11 @@ export const TransactionModal: React.FC = () => {
     }
   }, [isOpen, editingTransaction, defaultType]);
 
-  // Set default category and account if not set
+  // Ensure selected category always belongs to the active type (expense vs income)
   useEffect(() => {
-    if (categories.length > 0 && !categoryId) {
+    if (categories.length === 0) return;
+    const stillValid = categories.some((c) => c.id === categoryId);
+    if (!categoryId || !stillValid) {
       setCategoryId(categories[0].id);
     }
   }, [categories, categoryId]);
@@ -75,11 +107,13 @@ export const TransactionModal: React.FC = () => {
     }
   }, [accounts, accountId]);
 
-  const handleKeyPress = (key: string) => {
+  const handleKeyPress = useCallback((key: string) => {
     setAmountCents((prev) => keypadInputToCents(prev, key));
-  };
+  }, []);
 
-  const handleSave = async () => {
+  const handleSave = useCallback(async () => {
+    if (isSubmitting) return;
+
     if (amountCents <= 0) {
       showToast({ message: 'Digite um valor maior que zero', type: 'error' });
       return;
@@ -185,7 +219,48 @@ export const TransactionModal: React.FC = () => {
     } finally {
       setIsSubmitting(false);
     }
-  };
+  }, [
+    isSubmitting,
+    amountCents,
+    categories,
+    categoryId,
+    description,
+    type,
+    accountId,
+    accounts,
+    editingTransaction,
+    paymentMethod,
+    date,
+    installmentsCount,
+    close,
+  ]);
+
+  // Support hardware keyboard numbers/Enter when no text input is active
+  useEffect(() => {
+    if (!isOpen || showDeleteSheet) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      const isFormControl =
+        target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT');
+      if (isFormControl) return;
+
+      if (/^[0-9]$/.test(e.key)) {
+        e.preventDefault();
+        handleKeyPress(e.key);
+      } else if (e.key === 'Backspace') {
+        e.preventDefault();
+        handleKeyPress('backspace');
+      } else if (e.key === 'Delete') {
+        e.preventDefault();
+        handleKeyPress('clear');
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        void handleSave();
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [isOpen, showDeleteSheet, handleKeyPress, handleSave]);
 
   const handleDeleteSingle = async () => {
     if (!editingTransaction) return;
@@ -220,227 +295,291 @@ export const TransactionModal: React.FC = () => {
     });
   };
 
+  const saveLabel = editingTransaction
+    ? 'Salvar Alterações'
+    : type === 'expense'
+      ? 'Salvar Gasto'
+      : 'Salvar Receita';
+
   return (
     <>
       <Sheet
         isOpen={isOpen}
         onClose={close}
-        title={editingTransaction ? 'Editar Lançamento' : type === 'expense' ? 'Novo Gasto' : 'Nova Receita'}
-      >
-        <div className="flex flex-col gap-4 pb-2">
-          {/* Type Toggle (Expense / Income) */}
-          <div className="flex p-1 bg-[var(--surface-2)] rounded-2xl border border-[var(--border)]">
+        title={
+          editingTransaction
+            ? 'Editar Lançamento'
+            : type === 'expense'
+              ? 'Novo Gasto'
+              : 'Nova Receita'
+        }
+        headerAction={
+          editingTransaction ? (
             <button
               type="button"
-              onClick={() => setType('expense')}
-              className={`flex-1 py-2.5 text-xs font-semibold rounded-xl transition-all active:scale-95 ${
-                type === 'expense'
-                  ? 'bg-[var(--danger)] text-white shadow-sm'
-                  : 'text-[var(--text-muted)] hover:text-[var(--text)]'
-              }`}
+              onClick={() => setShowDeleteSheet(true)}
+              className="w-8 h-8 flex items-center justify-center rounded-full bg-[var(--danger)]/15 text-[var(--danger)] hover:bg-[var(--danger)]/25 active:scale-90 transition-transform"
+              aria-label="Excluir lançamento"
+              title="Excluir lançamento"
             >
-              Despesa
+              <Trash2 className="w-4 h-4" />
             </button>
-            <button
-              type="button"
-              onClick={() => setType('income')}
-              className={`flex-1 py-2.5 text-xs font-semibold rounded-xl transition-all active:scale-95 ${
-                type === 'income'
-                  ? 'bg-[var(--primary)] text-black shadow-sm'
-                  : 'text-[var(--text-muted)] hover:text-[var(--text)]'
-              }`}
-            >
-              Receita
-            </button>
-          </div>
-
-          {/* Big Monetary Display */}
-          <div className="flex flex-col items-center justify-center py-2">
-            <span className="text-xs uppercase font-medium tracking-wider text-[var(--text-muted)] mb-1">
-              Valor
-            </span>
-            <div
-              className={`text-4xl font-extrabold tabular-nums tracking-tight transition-colors ${
-                amountCents === 0
-                  ? 'text-[var(--text-muted)]'
-                  : type === 'expense'
-                    ? 'text-[var(--text)]'
-                    : 'text-[var(--primary-bright)]'
-              }`}
-            >
-              {formatCentsToBRL(amountCents)}
-            </div>
-          </div>
-
-          {/* Category Horizontal Quick Selector */}
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-xs font-medium text-[var(--text-muted)]">Categoria</span>
-              <span className="text-xs text-[var(--text-muted)]">
-                {categories.find((c) => c.id === categoryId)?.name || 'Selecione'}
-              </span>
-            </div>
-            <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar touch-pan-x overscroll-x-contain">
-              {categories.map((cat) => {
-                const isSelected = cat.id === categoryId;
-                return (
-                  <button
-                    key={cat.id}
-                    type="button"
-                    onClick={() => setCategoryId(cat.id)}
-                    className={`flex flex-col items-center justify-center min-w-[68px] p-2.5 rounded-2xl border transition-all active:scale-95 ${
-                      isSelected
-                        ? 'border-[var(--primary)] bg-[var(--surface-2)] shadow-sm'
-                        : 'border-[var(--border)] bg-[var(--surface)] text-[var(--text-muted)] hover:border-[var(--text-muted)]'
-                    }`}
-                  >
-                    <div
-                      className="w-8 h-8 rounded-xl flex items-center justify-center mb-1 text-white shadow-xs"
-                      style={{ backgroundColor: cat.color }}
-                    >
-                      <CategoryIcon name={cat.icon} className="w-4 h-4" />
-                    </div>
-                    <span className="text-[11px] truncate max-w-[62px] text-center font-medium">
-                      {cat.name}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Quick Payment & Account Selectors */}
-          <div className="grid grid-cols-2 gap-2">
-            {/* Payment Method */}
-            <div className="flex flex-col gap-1">
-              <label className="text-[11px] font-medium text-[var(--text-muted)]">Pagamento</label>
-              <select
-                value={paymentMethod}
-                onChange={(e) => setPaymentMethod(e.target.value as PaymentMethod)}
-                className="bg-[var(--surface-2)] border border-[var(--border)] text-[var(--text)] rounded-xl px-3 py-2.5 focus:outline-none focus:border-[var(--primary)] min-h-[46px]"
-              >
-                <option value="pix">PIX</option>
-                <option value="credit">Cartão de Crédito</option>
-                <option value="debit">Cartão de Débito</option>
-                <option value="cash">Dinheiro</option>
-                <option value="boleto">Boleto</option>
-                <option value="transfer">Transferência</option>
-              </select>
-            </div>
-
-            {/* Account */}
-            <div className="flex flex-col gap-1">
-              <label className="text-[11px] font-medium text-[var(--text-muted)]">Conta / Cartão</label>
-              <select
-                value={accountId}
-                onChange={(e) => setAccountId(e.target.value)}
-                className="bg-[var(--surface-2)] border border-[var(--border)] text-[var(--text)] rounded-xl px-3 py-2.5 focus:outline-none focus:border-[var(--primary)] min-h-[46px]"
-              >
-                {accounts.map((acc) => (
-                  <option key={acc.id} value={acc.id}>
-                    {acc.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          {/* Installment count (if credit card) */}
-          {paymentMethod === 'credit' && type === 'expense' && !editingTransaction && (
-            <div className="flex items-center justify-between p-3 rounded-2xl bg-[var(--surface-2)] border border-[var(--border)]">
-              <div className="flex items-center gap-2 text-xs font-medium text-[var(--text)]">
-                <CreditCard className="w-4 h-4 text-[var(--primary)]" />
-                <span>Parcelamento</span>
-              </div>
-              <select
-                value={installmentsCount}
-                onChange={(e) => setInstallmentsCount(Number(e.target.value))}
-                className="bg-[var(--surface)] border border-[var(--border)] text-[var(--text)] rounded-xl px-2.5 py-2 focus:outline-none"
-              >
-                <option value={1}>À vista (1x)</option>
-                {[2, 3, 4, 5, 6, 8, 10, 12, 18, 24].map((num) => (
-                  <option key={num} value={num}>
-                    {num}x de {formatCentsToBRL(Math.round(amountCents / num))}
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
-
-          {/* Toggle Advanced fields (Description, Date) */}
-          <button
-            type="button"
-            onClick={() => setShowAdvanced(!showAdvanced)}
-            className="flex items-center justify-between text-xs text-[var(--text-muted)] hover:text-[var(--text)] pt-1 min-h-[36px]"
-          >
-            <span>Mais detalhes (descrição, data)</span>
-            <ChevronDown
-              className={`w-4 h-4 transition-transform ${showAdvanced ? 'rotate-180' : ''}`}
-            />
-          </button>
-
-          {showAdvanced && (
-            <div className="flex flex-col gap-3 p-3 rounded-2xl bg-[var(--surface-2)] border border-[var(--border)]">
-              {/* Description */}
-              <div className="flex flex-col gap-1">
-                <label className="text-[11px] font-medium text-[var(--text-muted)] flex items-center gap-1">
-                  <Tag className="w-3.5 h-3.5" />
-                  Descrição (opcional)
-                </label>
-                <input
-                  type="text"
-                  placeholder="Ex: Almoço com amigos"
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                  className="bg-[var(--surface)] border border-[var(--border)] text-[var(--text)] rounded-xl px-3 py-2.5 focus:outline-none focus:border-[var(--primary)] min-h-[46px]"
-                />
-              </div>
-
-              {/* Date */}
-              <div className="flex flex-col gap-1">
-                <label className="text-[11px] font-medium text-[var(--text-muted)] flex items-center gap-1">
-                  <Calendar className="w-3.5 h-3.5" />
-                  Data da Compra
-                </label>
-                <input
-                  type="date"
-                  value={date}
-                  onChange={(e) => setDate(e.target.value)}
-                  className="bg-[var(--surface)] border border-[var(--border)] text-[var(--text)] rounded-xl px-3 py-2.5 focus:outline-none focus:border-[var(--primary)] min-h-[46px]"
-                />
-              </div>
-            </div>
-          )}
-
-          {/* Numeric Keypad */}
-          <NumericKeypad onKeyPress={handleKeyPress} className="mt-1" />
-
-          {/* Action Buttons */}
-          <div className="flex flex-col gap-2 mt-2">
+          ) : undefined
+        }
+        footer={
+          <div className="flex flex-col gap-2">
             <Button
               variant="primary"
               size="lg"
               fullWidth
               onClick={handleSave}
               isLoading={isSubmitting}
-              className="text-base font-bold"
+              className="text-base font-bold min-h-[48px] rounded-2xl"
             >
-              {editingTransaction ? 'Salvar Alterações' : 'Salvar Gasto'}
+              <Check className="w-4 h-4 mr-1.5 stroke-[2.5]" />
+              {saveLabel}
+              {amountCents > 0 ? ` · ${formatCentsToBRL(amountCents)}` : ''}
             </Button>
-
-            {editingTransaction && (
-              <Button
-                variant="ghost"
-                size="md"
-                fullWidth
-                onClick={() => setShowDeleteSheet(true)}
-                className="text-[var(--danger)] hover:text-[var(--danger)] hover:bg-[var(--danger)]/10"
-              >
-                <Trash2 className="w-4 h-4 mr-2" />
-                Excluir Lançamento
-              </Button>
-            )}
           </div>
+        }
+      >
+        <div className="flex flex-col gap-3">
+          {/* Type Toggle + Compact Amount Header */}
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex p-1 bg-[var(--surface-2)] rounded-2xl border border-[var(--border)] shrink-0">
+              <button
+                type="button"
+                onClick={() => setType('expense')}
+                className={`px-3.5 py-1.5 text-xs font-semibold rounded-xl transition-all active:scale-95 ${
+                  type === 'expense'
+                    ? 'bg-[var(--danger)] text-white shadow-sm'
+                    : 'text-[var(--text-muted)] hover:text-[var(--text)]'
+                }`}
+              >
+                Despesa
+              </button>
+              <button
+                type="button"
+                onClick={() => setType('income')}
+                className={`px-3.5 py-1.5 text-xs font-semibold rounded-xl transition-all active:scale-95 ${
+                  type === 'income'
+                    ? 'bg-[var(--primary)] text-black shadow-sm'
+                    : 'text-[var(--text-muted)] hover:text-[var(--text)]'
+                }`}
+              >
+                Receita
+              </button>
+            </div>
+
+            <div className="text-right min-w-0">
+              <div
+                className={`text-[30px] leading-none font-extrabold tabular-nums tracking-tight transition-colors ${
+                  amountCents === 0
+                    ? 'text-[var(--text-muted)]'
+                    : type === 'expense'
+                      ? 'text-[var(--text)]'
+                      : 'text-[var(--primary-bright)]'
+                }`}
+              >
+                {formatCentsToBRL(amountCents)}
+              </div>
+            </div>
+          </div>
+
+          {/* Inline Description + Quick Date Pill (No accordion hunt required) */}
+          <div className="flex items-center gap-2">
+            <div className="relative flex-1 min-w-0 flex items-center">
+              <Tag className="w-3.5 h-3.5 text-[var(--text-muted)] absolute left-3 pointer-events-none" />
+              <input
+                type="text"
+                placeholder={
+                  type === 'expense'
+                    ? 'Descrição (ex: Almoço, Uber)...'
+                    : 'Descrição (ex: Salário, Freela)...'
+                }
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.currentTarget.blur();
+                  }
+                }}
+                enterKeyHint="done"
+                className="w-full bg-[var(--surface-2)] border border-[var(--border)] text-[var(--text)] placeholder-[var(--text-muted)]/70 rounded-xl pl-8 pr-3 py-2 focus:outline-none focus:border-[var(--primary)] min-h-[42px]"
+              />
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setShowDatePicker((prev) => !prev)}
+              className={`shrink-0 flex items-center gap-1.5 px-3 min-h-[42px] rounded-xl border text-xs font-semibold transition-all active:scale-95 ${
+                showDatePicker || date !== todayStr
+                  ? 'border-[var(--primary)]/50 bg-[var(--primary)]/10 text-[var(--primary-bright)]'
+                  : 'border-[var(--border)] bg-[var(--surface-2)] text-[var(--text-muted)] hover:text-[var(--text)]'
+              }`}
+              aria-label="Escolher data"
+            >
+              <Calendar className="w-3.5 h-3.5" />
+              <span>{date === todayStr ? 'Hoje' : date === yesterdayStr ? 'Ontem' : formatFriendlyDate(date)}</span>
+            </button>
+          </div>
+
+          {/* Quick Date Selector Strip when toggled */}
+          {showDatePicker && (
+            <div className="flex items-center gap-2 p-2 rounded-2xl bg-[var(--surface-2)] border border-[var(--border)]">
+              <button
+                type="button"
+                onClick={() => {
+                  setDate(todayStr);
+                  setShowDatePicker(false);
+                }}
+                className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-all ${
+                  date === todayStr
+                    ? 'bg-[var(--primary)] text-black'
+                    : 'bg-[var(--surface)] text-[var(--text-muted)]'
+                }`}
+              >
+                Hoje
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setDate(yesterdayStr);
+                  setShowDatePicker(false);
+                }}
+                className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-all ${
+                  date === yesterdayStr
+                    ? 'bg-[var(--primary)] text-black'
+                    : 'bg-[var(--surface)] text-[var(--text-muted)]'
+                }`}
+              >
+                Ontem
+              </button>
+              <input
+                type="date"
+                value={date}
+                onChange={(e) => setDate(e.target.value)}
+                className="flex-1 min-w-0 bg-[var(--surface)] border border-[var(--border)] text-[var(--text)] rounded-xl px-2.5 py-1.5 focus:outline-none focus:border-[var(--primary)] min-h-[36px]"
+              />
+            </div>
+          )}
+
+          {/* Category Horizontal Quick Selector */}
+          <div className="flex gap-2 overflow-x-auto pb-0.5 no-scrollbar touch-pan-x overscroll-x-contain">
+            {categories.map((cat) => {
+              const isSelected = cat.id === categoryId;
+              return (
+                <button
+                  key={cat.id}
+                  type="button"
+                  onClick={() => setCategoryId(cat.id)}
+                  className={`flex flex-col items-center justify-center min-w-[62px] py-2 px-1.5 rounded-2xl border transition-all active:scale-95 shrink-0 ${
+                    isSelected
+                      ? 'border-[var(--primary)] bg-[var(--surface-2)] shadow-sm text-[var(--text)]'
+                      : 'border-[var(--border)] bg-[var(--surface)] text-[var(--text-muted)] hover:border-[var(--text-muted)]'
+                  }`}
+                >
+                  <div
+                    className="w-7 h-7 rounded-xl flex items-center justify-center mb-1 text-white shadow-xs"
+                    style={{ backgroundColor: cat.color }}
+                  >
+                    <CategoryIcon name={cat.icon} className="w-3.5 h-3.5" />
+                  </div>
+                  <span className="text-[10px] truncate max-w-[56px] text-center font-medium">
+                    {cat.name}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* One-Tap Payment Method Chips (No clunky iOS picker wheel) */}
+          <div className="flex gap-1.5 overflow-x-auto pb-0.5 no-scrollbar touch-pan-x overscroll-x-contain">
+            {PAYMENT_OPTIONS.map((opt) => {
+              const Icon = opt.icon;
+              const isSelected = paymentMethod === opt.value;
+              return (
+                <button
+                  key={opt.value}
+                  type="button"
+                  onClick={() => setPaymentMethod(opt.value)}
+                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-xs font-semibold shrink-0 transition-all active:scale-95 min-h-[34px] ${
+                    isSelected
+                      ? 'bg-white text-black border-white'
+                      : 'bg-[var(--surface-2)] text-[var(--text-muted)] border-[var(--border)] hover:text-[var(--text)]'
+                  }`}
+                >
+                  <Icon className="w-3.5 h-3.5" />
+                  <span>{opt.label}</span>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Account Chips (when multiple accounts exist) */}
+          {accounts.length > 1 && (
+            <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 no-scrollbar touch-pan-x overscroll-x-contain">
+              <span className="text-[11px] text-[var(--text-muted)] font-medium shrink-0 mr-0.5">
+                Conta:
+              </span>
+              {accounts.map((acc) => {
+                const isSelected = acc.id === accountId;
+                return (
+                  <button
+                    key={acc.id}
+                    type="button"
+                    onClick={() => setAccountId(acc.id)}
+                    className={`px-2.5 py-1 rounded-xl border text-[11px] font-semibold shrink-0 transition-all active:scale-95 ${
+                      isSelected
+                        ? 'border-[var(--primary)] bg-[var(--primary)]/15 text-[var(--primary-bright)]'
+                        : 'border-[var(--border)] bg-[var(--surface)] text-[var(--text-muted)]'
+                    }`}
+                  >
+                    {acc.name}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Installment quick pills (if credit card expense) */}
+          {paymentMethod === 'credit' && type === 'expense' && !editingTransaction && (
+            <div className="flex flex-col gap-1.5 p-2.5 rounded-2xl bg-[var(--surface-2)] border border-[var(--border)]">
+              <div className="flex items-center justify-between text-[11px]">
+                <span className="flex items-center gap-1.5 font-semibold text-[var(--text)]">
+                  <CreditCard className="w-3.5 h-3.5 text-[var(--primary)]" />
+                  Parcelamento
+                </span>
+                <span className="text-[var(--text-muted)] tabular-nums">
+                  {installmentsCount === 1
+                    ? 'À vista'
+                    : `${installmentsCount}x de ${formatCentsToBRL(Math.round(amountCents / installmentsCount))}`}
+                </span>
+              </div>
+              <div className="flex gap-1.5 overflow-x-auto no-scrollbar touch-pan-x overscroll-x-contain">
+                {INSTALLMENT_PRESETS.map((num) => {
+                  const isSelected = installmentsCount === num;
+                  return (
+                    <button
+                      key={num}
+                      type="button"
+                      onClick={() => setInstallmentsCount(num)}
+                      className={`px-2.5 py-1 rounded-lg text-xs font-semibold shrink-0 transition-all active:scale-95 ${
+                        isSelected
+                          ? 'bg-[var(--primary)] text-black'
+                          : 'bg-[var(--surface)] text-[var(--text-muted)] border border-[var(--border)]'
+                      }`}
+                    >
+                      {num === 1 ? '1x' : `${num}x`}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Compact Numeric Keypad */}
+          <NumericKeypad compact onKeyPress={handleKeyPress} />
         </div>
       </Sheet>
 

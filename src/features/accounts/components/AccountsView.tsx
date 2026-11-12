@@ -155,7 +155,16 @@ export const AccountsView: React.FC = () => {
       </div>
 
       {/* Add Account Sheet */}
-      <Sheet isOpen={isAddOpen} onClose={() => setIsAddOpen(false)} title="Nova Conta ou Cartão">
+      <Sheet
+        isOpen={isAddOpen}
+        onClose={() => setIsAddOpen(false)}
+        title="Nova Conta ou Cartão"
+        footer={
+          <Button variant="primary" size="lg" fullWidth onClick={handleCreate}>
+            Salvar
+          </Button>
+        }
+      >
         <div className="flex flex-col gap-4">
           <div className="flex flex-col gap-1">
             <label className="text-xs font-medium text-[var(--text-muted)]">Tipo</label>
@@ -208,10 +217,6 @@ export const AccountsView: React.FC = () => {
               </div>
             </div>
           )}
-
-          <Button variant="primary" size="lg" fullWidth onClick={handleCreate} className="mt-2">
-            Salvar
-          </Button>
         </div>
       </Sheet>
     </div>

@@ -1,4 +1,5 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   Search,
   Filter,
@@ -23,12 +24,29 @@ import { PaymentMethod, Transaction, TransactionType } from '@/data/db';
 
 export const TransactionsList: React.FC = () => {
   const { openEdit, openCreate } = useTransactionModalStore();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [searchTerm, setSearchTerm] = useState('');
-  const [selectedType, setSelectedType] = useState<TransactionType | undefined>();
-  const [selectedCategory, setSelectedCategory] = useState<string | undefined>();
+  const [selectedType, setSelectedType] = useState<TransactionType | undefined>(() => {
+    const param = searchParams.get('type');
+    return param === 'expense' || param === 'income' ? param : undefined;
+  });
+  const [selectedCategory, setSelectedCategory] = useState<string | undefined>(
+    () => searchParams.get('category') || undefined
+  );
   const [selectedPayment, setSelectedPayment] = useState<PaymentMethod | undefined>();
   const [selectedStatus, setSelectedStatus] = useState<'confirmed' | 'planned' | undefined>();
   const [pendingDeleteInstallmentTx, setPendingDeleteInstallmentTx] = useState<Transaction | null>(null);
+
+  useEffect(() => {
+    const paramType = searchParams.get('type');
+    const paramCategory = searchParams.get('category');
+    if (paramType === 'expense' || paramType === 'income') {
+      setSelectedType(paramType);
+    }
+    if (paramCategory) {
+      setSelectedCategory(paramCategory);
+    }
+  }, [searchParams]);
 
   const { transactions } = useTransactions({
     search: searchTerm,
@@ -112,7 +130,20 @@ export const TransactionsList: React.FC = () => {
     setSelectedCategory(undefined);
     setSelectedPayment(undefined);
     setSelectedStatus(undefined);
+    if (searchParams.toString()) {
+      setSearchParams({}, { replace: true });
+    }
   };
+
+  const filteredSummary = useMemo(() => {
+    let income = 0;
+    let expense = 0;
+    for (const tx of transactions) {
+      if (tx.type === 'income') income += tx.amountCents;
+      else expense += tx.amountCents;
+    }
+    return { income, expense, count: transactions.length };
+  }, [transactions]);
 
   return (
     <div className="flex flex-col gap-4 px-4 pb-8">
@@ -205,6 +236,27 @@ export const TransactionsList: React.FC = () => {
           </Chip>
         ))}
       </div>
+
+      {/* Summary Strip */}
+      {filteredSummary.count > 0 && (
+        <div className="flex items-center justify-between px-3.5 py-2.5 rounded-2xl bg-[var(--surface)] border border-[var(--border)] text-xs">
+          <span className="text-[var(--text-muted)] font-medium">
+            {filteredSummary.count} {filteredSummary.count === 1 ? 'registro' : 'registros'}
+          </span>
+          <div className="flex items-center gap-3 tabular-nums font-bold">
+            {filteredSummary.income > 0 && (
+              <span className="text-[var(--primary-bright)]">
+                +{formatCentsToBRL(filteredSummary.income)}
+              </span>
+            )}
+            {filteredSummary.expense > 0 && (
+              <span className="text-[var(--text)]">
+                -{formatCentsToBRL(filteredSummary.expense)}
+              </span>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Grouped Transactions List */}
       {groupedTransactions.length === 0 ? (

@@ -94,6 +94,16 @@ textarea {
   font-size: 16px !important;
 }
 
+/* Instant tap response on iOS (removes 300ms delay & unintended double-tap zoom) */
+button,
+a,
+select,
+input,
+textarea,
+[role="button"] {
+  touch-action: manipulation;
+}
+
 /* Allow text selection in inputs and explicit selectable text */
 input, textarea, [contenteditable="true"], .selectable {
   user-select: text;
@@ -136,6 +146,7 @@ input, textarea, [contenteditable="true"], .selectable {
   -webkit-overflow-scrolling: touch;
   overscroll-behavior-y: contain;
   overscroll-behavior-x: none;
+  touch-action: pan-y;
 }
 
 /* Glow effect for FAB button */

@@ -9,6 +9,8 @@ import {
   Sparkles,
   CalendarCheck2,
   Cloud,
+  Plus,
+  Minus,
 } from 'lucide-react';
 import { Card } from '@/shared/ui/Card';
 import { MobileHeader } from '@/shared/ui/MobileHeader';
@@ -210,9 +212,13 @@ export const Home: React.FC = () => {
             {formatCentsToBRL(balanceCents)}
           </div>
 
-          {/* Income vs Expenses pills */}
+          {/* Income vs Expenses pills (tappable shortcuts to filtered list) */}
           <div className="grid grid-cols-2 gap-3 pt-1">
-            <div className="flex flex-col p-3 rounded-2xl bg-[var(--surface-2)]/80 border border-[var(--border)]/60">
+            <button
+              type="button"
+              onClick={() => navigate('/lancamentos?type=income')}
+              className="flex flex-col text-left p-3 rounded-2xl bg-[var(--surface-2)]/80 border border-[var(--border)]/60 hover:border-[var(--primary)]/40 active:scale-[0.98] transition-all"
+            >
               <span className="text-[11px] text-[var(--text-muted)] font-medium flex items-center gap-1">
                 <span className="w-1.5 h-1.5 rounded-full bg-[var(--primary)]" />
                 Receitas
@@ -220,9 +226,13 @@ export const Home: React.FC = () => {
               <span className="text-base font-bold text-[var(--primary-bright)] tabular-nums mt-0.5">
                 {formatCentsToBRL(totalIncomesCents)}
               </span>
-            </div>
+            </button>
 
-            <div className="flex flex-col p-3 rounded-2xl bg-[var(--surface-2)]/80 border border-[var(--border)]/60">
+            <button
+              type="button"
+              onClick={() => navigate('/lancamentos?type=expense')}
+              className="flex flex-col text-left p-3 rounded-2xl bg-[var(--surface-2)]/80 border border-[var(--border)]/60 hover:border-[var(--danger)]/40 active:scale-[0.98] transition-all"
+            >
               <span className="text-[11px] text-[var(--text-muted)] font-medium flex items-center gap-1">
                 <span className="w-1.5 h-1.5 rounded-full bg-[var(--danger)]" />
                 Despesas
@@ -230,7 +240,27 @@ export const Home: React.FC = () => {
               <span className="text-base font-bold text-[var(--text)] tabular-nums mt-0.5">
                 {formatCentsToBRL(totalExpensesCents)}
               </span>
-            </div>
+            </button>
+          </div>
+
+          {/* 1-Tap Quick Entry Pills */}
+          <div className="grid grid-cols-2 gap-2.5">
+            <button
+              type="button"
+              onClick={() => openCreate('expense')}
+              className="flex items-center justify-center gap-1.5 min-h-[42px] px-3 rounded-2xl bg-[var(--danger)]/12 border border-[var(--danger)]/25 text-xs font-bold text-[var(--text)] hover:bg-[var(--danger)]/20 active:scale-[0.97] transition-all"
+            >
+              <Minus className="w-3.5 h-3.5 text-[var(--danger)] stroke-[2.6]" />
+              Novo gasto
+            </button>
+            <button
+              type="button"
+              onClick={() => openCreate('income')}
+              className="flex items-center justify-center gap-1.5 min-h-[42px] px-3 rounded-2xl bg-[var(--primary)]/14 border border-[var(--primary)]/30 text-xs font-bold text-[var(--primary-bright)] hover:bg-[var(--primary)]/22 active:scale-[0.97] transition-all"
+            >
+              <Plus className="w-3.5 h-3.5 stroke-[2.6]" />
+              Nova receita
+            </button>
           </div>
 
           {/* Total Budget Progress */}
@@ -292,9 +322,11 @@ export const Home: React.FC = () => {
 
         <div className="flex gap-3 overflow-x-auto pb-1 no-scrollbar touch-pan-x overscroll-x-contain -mx-4 px-4">
           {topCategories.map(({ category, spent, budget, status }) => (
-            <div
+            <button
               key={category.id}
-              className="flex flex-col items-center justify-between p-3.5 rounded-3xl bg-[var(--surface)] border border-[var(--border)] min-w-[130px] shrink-0 min-h-[140px]"
+              type="button"
+              onClick={() => navigate(`/lancamentos?category=${encodeURIComponent(category.id)}`)}
+              className="flex flex-col items-center justify-between p-3.5 rounded-3xl bg-[var(--surface)] border border-[var(--border)] hover:border-[var(--primary)]/40 active:scale-[0.97] transition-all min-w-[130px] shrink-0 min-h-[140px] text-left"
             >
               <div className="flex items-center justify-between w-full">
                 <span className="text-xs font-semibold text-[var(--text)] truncate max-w-[80px]">
@@ -323,7 +355,7 @@ export const Home: React.FC = () => {
                   {budget > 0 ? `de ${formatCentsToBRL(budget)}` : 'Sem limite'}
                 </span>
               </div>
-            </div>
+            </button>
           ))}
         </div>
       </div>

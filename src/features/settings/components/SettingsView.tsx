@@ -433,7 +433,16 @@ export const SettingsView: React.FC = () => {
       </Sheet>
 
       {/* New Category Sheet */}
-      <Sheet isOpen={isCatModalOpen} onClose={() => setIsCatModalOpen(false)} title="Nova Categoria">
+      <Sheet
+        isOpen={isCatModalOpen}
+        onClose={() => setIsCatModalOpen(false)}
+        title="Nova Categoria"
+        footer={
+          <Button variant="primary" size="lg" fullWidth onClick={handleCreateCategory}>
+            Salvar Categoria
+          </Button>
+        }
+      >
         <div className="flex flex-col gap-4">
           <div className="flex flex-col gap-1">
             <label className="text-xs font-medium text-[var(--text-muted)]">Tipo</label>
@@ -494,10 +503,6 @@ export const SettingsView: React.FC = () => {
               ))}
             </div>
           </div>
-
-          <Button variant="primary" size="lg" fullWidth onClick={handleCreateCategory} className="mt-2">
-            Salvar Categoria
-          </Button>
         </div>
       </Sheet>
 

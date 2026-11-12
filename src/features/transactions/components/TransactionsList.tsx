@@ -3,7 +3,6 @@ import { useSearchParams } from 'react-router-dom';
 import {
   Search,
   Filter,
-  Trash2,
   Calendar,
   X,
   CreditCard,
@@ -189,7 +188,7 @@ export const TransactionsList: React.FC = () => {
       </div>
 
       {/* Filter Chips Bar */}
-      <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar touch-pan-x overscroll-x-contain -mx-4 px-4">
+      <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar touch-pan-xy overscroll-x-contain -mx-4 px-4">
         {hasActiveFilters && (
           <Chip onClick={clearFilters} className="bg-[var(--danger)]/20 text-[var(--danger)]">
             Limpar filtros
@@ -283,52 +282,52 @@ export const TransactionsList: React.FC = () => {
           onAction={hasActiveFilters ? clearFilters : () => openCreate('expense')}
         />
       ) : (
-        <div className="flex flex-col gap-6">
-          {groupedTransactions.map((group) => (
-            <div key={group.date} className="flex flex-col gap-2">
-              {/* Day Section Header */}
-              <div className="flex items-center justify-between px-1 text-xs text-[var(--text-muted)] font-medium">
-                <div className="flex items-center gap-1.5">
-                  <Calendar className="w-3.5 h-3.5" />
-                  <span>{formatFriendlyDate(group.date)}</span>
+        <div
+          key={`${selectedType ?? 'all'}-${selectedCategory ?? 'all'}-${selectedPayment ?? 'all'}-${selectedStatus ?? 'all'}`}
+          className="flex flex-col gap-6"
+        >
+          {groupedTransactions.map((group, groupIdx) => {
+            const baseDelay = Math.min(groupIdx, 4) * 32;
+            return (
+              <div key={group.date} className="flex flex-col gap-2">
+                {/* Day Section Header */}
+                <div
+                  className="flex items-center justify-between px-1 text-xs text-[var(--text-muted)] font-medium ios-section-enter"
+                  style={{ '--enter-delay': `${baseDelay}ms` } as React.CSSProperties}
+                >
+                  <div className="flex items-center gap-1.5">
+                    <Calendar className="w-3.5 h-3.5" />
+                    <span>{formatFriendlyDate(group.date)}</span>
+                  </div>
+                  <div className="flex items-center gap-2 tabular-nums">
+                    {group.totalExpenseCents > 0 && (
+                      <span>-{formatCentsToBRL(group.totalExpenseCents)}</span>
+                    )}
+                    {group.totalIncomeCents > 0 && (
+                      <span className="text-[var(--primary-bright)]">
+                        +{formatCentsToBRL(group.totalIncomeCents)}
+                      </span>
+                    )}
+                  </div>
                 </div>
-                <div className="flex items-center gap-2 tabular-nums">
-                  {group.totalExpenseCents > 0 && (
-                    <span>-{formatCentsToBRL(group.totalExpenseCents)}</span>
-                  )}
-                  {group.totalIncomeCents > 0 && (
-                    <span className="text-[var(--primary-bright)]">
-                      +{formatCentsToBRL(group.totalIncomeCents)}
-                    </span>
-                  )}
-                </div>
-              </div>
 
-              {/* Transactions of this day */}
-              <div className="flex flex-col gap-2">
-                {group.items.map((tx) => (
-                  <div key={tx.id} className="relative group">
+                {/* Transactions of this day */}
+                <div className="flex flex-col gap-2">
+                  {group.items.map((tx, itemIdx) => (
                     <TransactionItem
+                      key={tx.id}
                       transaction={tx}
                       category={categoryMap.get(tx.categoryId)}
                       onSelect={openEdit}
+                      onDelete={handleDelete}
+                      animateEnter
+                      enterDelayMs={baseDelay + Math.min(itemIdx, 8) * 28}
                     />
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleDelete(tx);
-                      }}
-                      className="hidden [@media(hover:hover)]:flex absolute right-3 top-1/2 -translate-y-1/2 p-2 rounded-xl bg-[var(--surface-2)] text-[var(--text-muted)] hover:text-[var(--danger)] opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity"
-                      aria-label="Excluir"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
-                ))}
+                  ))}
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 

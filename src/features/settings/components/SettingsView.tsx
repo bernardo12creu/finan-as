@@ -479,7 +479,10 @@ export const SettingsView: React.FC = () => {
 
           <div className="flex flex-col gap-1">
             <label className="text-xs font-medium text-[var(--text-muted)]">Cor</label>
-            <div className="flex gap-2.5 overflow-x-auto pb-1 no-scrollbar touch-pan-x overscroll-x-contain">
+            <div
+              data-horizontal-scroll="true"
+              className="flex gap-2.5 overflow-x-auto pb-1 no-scrollbar touch-pan-xy overscroll-x-contain"
+            >
               {[
                 '#22C55E',
                 '#3B82F6',

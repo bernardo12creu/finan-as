@@ -191,7 +191,7 @@ export const AppLayout: React.FC = () => {
         onTouchEnd={handleNavTouchEnd}
         onTouchCancel={handleNavTouchEnd}
         onClickCapture={handleNavClickCapture}
-        className="absolute bottom-0 left-0 right-0 z-40 w-full ios-glass-tabbar border-t border-white/[0.08] pb-[max(env(safe-area-inset-bottom,0px),6px)] touch-pan-y select-none"
+        className="absolute bottom-0 left-0 right-0 z-40 w-full ios-glass-tabbar border-t border-white/[0.08] pb-[max(env(safe-area-inset-bottom,0px),6px)] touch-none select-none"
       >
         <div className="flex items-center justify-around h-[52px] px-2 relative">
           {navItems.map((item) => {

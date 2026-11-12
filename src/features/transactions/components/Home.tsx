@@ -137,6 +137,21 @@ export const Home: React.FC = () => {
     showToast({ message: 'Lançamento confirmado!', type: 'success' });
   };
 
+  const handleDeleteTransaction = async (tx: (typeof transactions)[number]) => {
+    await transactionRepository.softDelete(tx.id);
+    showToast({
+      message: 'Lançamento excluído',
+      type: 'info',
+      action: {
+        label: 'Desfazer',
+        onClick: async () => {
+          await transactionRepository.restore(tx.id);
+          showToast({ message: 'Lançamento restaurado', type: 'success' });
+        },
+      },
+    });
+  };
+
   return (
     <div className="flex flex-col gap-6 px-4 pb-8">
       {/* Native iOS Dynamic Island-aligned Header with Month Pill */}
@@ -187,7 +202,12 @@ export const Home: React.FC = () => {
       <IosInstallBanner />
 
       {/* Main Balance & Overview Card with subtle gradient fade */}
-      <Card variant="fade" className="p-5 border-[var(--border)] overflow-hidden">
+      <Card
+        key={`card-${competence}`}
+        variant="fade"
+        className="p-5 border-[var(--border)] overflow-hidden ios-section-enter"
+        style={{ '--enter-delay': '0ms' } as React.CSSProperties}
+      >
         <div className="absolute top-0 left-0 right-0 h-32 gradient-fade pointer-events-none" />
 
         <div className="relative z-10 flex flex-col gap-4">
@@ -294,7 +314,8 @@ export const Home: React.FC = () => {
       {/* Monthly Closing Wrapped Banner */}
       <div
         onClick={() => navigate(`/fechamento/${competence}`)}
-        className="flex items-center justify-between p-4 rounded-3xl bg-[var(--surface-2)] border border-[var(--border)] hover:border-[var(--primary)]/50 active:scale-[0.99] transition-transform duration-100 cursor-pointer shadow-sm"
+        className="flex items-center justify-between p-4 rounded-3xl bg-[var(--surface-2)] border border-[var(--border)] hover:border-[var(--primary)]/50 active:scale-[0.99] transition-transform duration-100 cursor-pointer shadow-sm ios-section-enter"
+        style={{ '--enter-delay': '45ms' } as React.CSSProperties}
       >
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-2xl bg-[var(--primary)]/10 text-[var(--primary)] flex items-center justify-center">
@@ -311,7 +332,10 @@ export const Home: React.FC = () => {
       </div>
 
       {/* Category Progress Carousel */}
-      <div className="flex flex-col gap-3">
+      <div
+        className="flex flex-col gap-3 ios-section-enter"
+        style={{ '--enter-delay': '85ms' } as React.CSSProperties}
+      >
         <div className="flex items-center justify-between">
           <h2 className="text-sm font-bold text-[var(--text)] tracking-tight">
             Categorias em Foco
@@ -325,7 +349,7 @@ export const Home: React.FC = () => {
           </button>
         </div>
 
-        <div className="flex gap-3 overflow-x-auto pb-1 no-scrollbar touch-pan-x overscroll-x-contain -mx-4 px-4">
+        <div className="flex gap-3 overflow-x-auto pb-1 no-scrollbar touch-pan-xy overscroll-x-contain -mx-4 px-4">
           {topCategories.map(({ category, spent, budget, status }) => (
             <button
               key={category.id}
@@ -442,13 +466,16 @@ export const Home: React.FC = () => {
             onAction={() => openCreate('expense')}
           />
         ) : (
-          <div className="flex flex-col gap-2">
-            {recentTransactions.map((tx) => (
+          <div key={competence} className="flex flex-col gap-2">
+            {recentTransactions.map((tx, idx) => (
               <TransactionItem
                 key={tx.id}
                 transaction={tx}
                 category={categoryMap.get(tx.categoryId)}
                 onSelect={openEdit}
+                onDelete={handleDeleteTransaction}
+                animateEnter
+                enterDelayMs={Math.min(idx, 5) * 36}
               />
             ))}
           </div>

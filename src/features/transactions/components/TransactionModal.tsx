@@ -514,7 +514,10 @@ export const TransactionModal: React.FC = () => {
           )}
 
           {/* Category Horizontal Quick Selector */}
-          <div className="flex gap-2 overflow-x-auto pb-0.5 no-scrollbar touch-pan-x overscroll-x-contain">
+          <div
+            data-horizontal-scroll="true"
+            className="flex gap-2 overflow-x-auto pb-0.5 no-scrollbar touch-pan-xy overscroll-x-contain"
+          >
             {categories.map((cat) => {
               const isSelected = cat.id === categoryId;
               return (
@@ -543,7 +546,10 @@ export const TransactionModal: React.FC = () => {
           </div>
 
           {/* One-Tap Payment Method Chips (No clunky iOS picker wheel) */}
-          <div className="flex gap-1.5 overflow-x-auto pb-0.5 no-scrollbar touch-pan-x overscroll-x-contain">
+          <div
+            data-horizontal-scroll="true"
+            className="flex gap-1.5 overflow-x-auto pb-0.5 no-scrollbar touch-pan-xy overscroll-x-contain"
+          >
             {PAYMENT_OPTIONS.map((opt) => {
               const Icon = opt.icon;
               const isSelected = paymentMethod === opt.value;
@@ -567,7 +573,10 @@ export const TransactionModal: React.FC = () => {
 
           {/* Account Chips (when multiple accounts exist) */}
           {accounts.length > 1 && (
-            <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 no-scrollbar touch-pan-x overscroll-x-contain">
+            <div
+              data-horizontal-scroll="true"
+              className="flex items-center gap-1.5 overflow-x-auto pb-0.5 no-scrollbar touch-pan-xy overscroll-x-contain"
+            >
               <span className="text-[11px] text-[var(--text-muted)] font-medium shrink-0 mr-0.5">
                 Conta:
               </span>
@@ -605,7 +614,10 @@ export const TransactionModal: React.FC = () => {
                     : `${installmentsCount}x de ${formatCentsToBRL(Math.round(amountCents / installmentsCount))}`}
                 </span>
               </div>
-              <div className="flex gap-1.5 overflow-x-auto no-scrollbar touch-pan-x overscroll-x-contain">
+              <div
+                data-horizontal-scroll="true"
+                className="flex gap-1.5 overflow-x-auto no-scrollbar touch-pan-xy overscroll-x-contain"
+              >
                 {INSTALLMENT_PRESETS.map((num) => {
                   const isSelected = installmentsCount === num;
                   return (

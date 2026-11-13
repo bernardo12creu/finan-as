@@ -212,13 +212,22 @@ export const AccountsView: React.FC = () => {
         isOpen={isAddOpen}
         onClose={() => setIsAddOpen(false)}
         title="Nova Conta ou Cartão"
+        headerAction={
+          <button
+            type="button"
+            onClick={handleCreate}
+            className="px-3 py-1.5 rounded-full bg-[var(--primary)] text-black text-xs font-bold active:scale-95 transition-transform"
+          >
+            Salvar
+          </button>
+        }
         footer={
           <Button variant="primary" size="lg" fullWidth onClick={handleCreate}>
-            Salvar
+            Salvar Conta
           </Button>
         }
       >
-        <div className="flex flex-col gap-4">
+        <div className="flex flex-col gap-3">
           {/* Segmented Tipo selector (iOS native feel) */}
           <div className="flex flex-col gap-1.5">
             <label className="text-xs font-medium text-[var(--text-muted)]">Tipo</label>
@@ -257,7 +266,10 @@ export const AccountsView: React.FC = () => {
                 )}
               </div>
 
-              <div className="grid grid-cols-2 gap-2">
+              <div
+                data-no-sheet-drag="true"
+                className="grid grid-cols-2 gap-2 max-h-[176px] overflow-y-auto overscroll-y-contain pr-1 ios-scroll touch-pan-y rounded-2xl border border-[var(--border)] bg-[var(--surface)]/50 p-2"
+              >
                 {BRAZILIAN_BANKS.map((bank) => {
                   const isSelected = activeBank?.id === bank.id;
                   return (

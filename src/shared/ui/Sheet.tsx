@@ -1,4 +1,5 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 
 export interface SheetProps {
@@ -76,7 +77,7 @@ export const Sheet: React.FC<SheetProps> = ({
   headerAction,
   footer,
   children,
-  maxHeight = 'calc(100% - max(env(safe-area-inset-top, 0px), 10px) - 6px)',
+  maxHeight = 'calc(100dvh - max(env(safe-area-inset-top, 0px), 16px) - 12px)',
   keepMounted = false,
 }) => {
   const [rendered, setRendered] = useState(isOpen || keepMounted);
@@ -414,9 +415,9 @@ export const Sheet: React.FC<SheetProps> = ({
     }
   };
 
-  if (!rendered) return null;
+  if (!rendered || typeof document === 'undefined') return null;
 
-  return (
+  const sheetContent = (
     <div
       aria-hidden={containerHidden}
       style={
@@ -424,7 +425,7 @@ export const Sheet: React.FC<SheetProps> = ({
           ? { visibility: 'hidden', pointerEvents: 'none' }
           : { visibility: 'visible', pointerEvents: 'auto' }
       }
-      className="fixed inset-0 z-50 flex items-end justify-center"
+      className="fixed inset-0 z-[100] w-full h-full flex items-end justify-center"
     >
       {/* Backdrop */}
       <div
@@ -474,7 +475,7 @@ export const Sheet: React.FC<SheetProps> = ({
         {/* Scrollable Body */}
         <div
           ref={bodyRef}
-          className={`flex-1 min-h-0 overflow-y-auto ios-scroll touch-pan-y px-5 py-3.5 ${
+          className={`relative z-10 flex-1 min-h-0 overflow-y-auto overscroll-y-contain ios-scroll touch-pan-y px-5 py-3.5 ${
             footer ? '' : 'pb-[calc(env(safe-area-inset-bottom,0px)+20px)]'
           }`}
         >
@@ -483,11 +484,16 @@ export const Sheet: React.FC<SheetProps> = ({
 
         {/* Always-visible Sticky Footer Action Bar */}
         {footer ? (
-          <div className="shrink-0 border-t border-white/[0.08] bg-[#141416] px-5 pt-3 pb-[calc(max(env(safe-area-inset-bottom,0px),12px)+4px)]">
+          <div
+            data-no-sheet-drag="true"
+            className="relative z-20 shrink-0 border-t border-white/[0.08] bg-[#141416] px-5 pt-3 pb-[calc(max(env(safe-area-inset-bottom,0px),14px)+6px)]"
+          >
             {footer}
           </div>
         ) : null}
       </div>
     </div>
   );
+
+  return createPortal(sheetContent, document.body);
 };

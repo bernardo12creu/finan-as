@@ -5,7 +5,13 @@ import { NumericKeypad } from '@/shared/ui/NumericKeypad';
 import { Button } from '@/shared/ui/Button';
 import { CategoryIcon } from '@/shared/ui/CategoryIcon';
 import { BankLogo } from '@/shared/ui/BankLogo';
+import { SubscriptionLogo } from '@/shared/ui/SubscriptionLogo';
 import { matchBankByName } from '@/shared/lib/banks';
+import {
+  POPULAR_SUBSCRIPTIONS,
+  SubscriptionPreset,
+  matchSubscriptionByName,
+} from '@/shared/lib/subscriptions';
 import { formatCentsToBRL, keypadInputToCents } from '@/shared/lib/money';
 import { getTodayDateString, formatFriendlyDate } from '@/shared/lib/dates';
 import {
@@ -188,6 +194,21 @@ export const TransactionModal: React.FC = () => {
     seriesSiblingsCount,
     editingTransaction?.installment?.total || 1
   );
+
+  const selectedCategory = categories.find((c) => c.id === categoryId);
+  const isSubscriptionCategory = Boolean(
+    type === 'expense' &&
+      selectedCategory &&
+      (selectedCategory.id.endsWith('cat_assinaturas') ||
+        selectedCategory.name.toLowerCase().includes('assinatura'))
+  );
+  const matchedSubscription = isSubscriptionCategory
+    ? matchSubscriptionByName(description)
+    : undefined;
+
+  const handleSelectSubscription = (sub: SubscriptionPreset) => {
+    setDescription(sub.name);
+  };
 
   const handleSave = useCallback(async () => {
     if (isSubmitting) return;
@@ -525,13 +546,23 @@ export const TransactionModal: React.FC = () => {
           {/* Inline Description + Quick Date Pill (No accordion hunt required) */}
           <div className="flex items-center gap-2">
             <div className="relative flex-1 min-w-0 flex items-center">
-              <Tag className="w-3.5 h-3.5 text-[var(--text-muted)] absolute left-3 pointer-events-none" />
+              {matchedSubscription ? (
+                <SubscriptionLogo
+                  subscription={matchedSubscription}
+                  size="xs"
+                  className="absolute left-3 pointer-events-none"
+                />
+              ) : (
+                <Tag className="w-3.5 h-3.5 text-[var(--text-muted)] absolute left-3 pointer-events-none" />
+              )}
               <input
                 type="text"
                 placeholder={
-                  type === 'expense'
-                    ? 'Descrição (ex: Almoço, Uber)...'
-                    : 'Descrição (ex: Salário, Freela)...'
+                  isSubscriptionCategory
+                    ? 'Assinatura (ex: Netflix, Spotify)...'
+                    : type === 'expense'
+                      ? 'Descrição (ex: Almoço, Uber)...'
+                      : 'Descrição (ex: Salário, Freela)...'
                 }
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
@@ -685,6 +716,51 @@ export const TransactionModal: React.FC = () => {
               );
             })}
           </div>
+
+          {/* Popular Subscriptions with Brand Logos (only when "Assinaturas" is selected) */}
+          {isSubscriptionCategory && (
+            <div className="flex flex-col gap-1.5">
+              <div className="flex items-center justify-between px-0.5">
+                <span className="text-[11px] font-medium text-[var(--text-muted)]">
+                  Escolha a assinatura
+                </span>
+                {matchedSubscription && (
+                  <span className="text-[11px] font-semibold text-[var(--primary-bright)]">
+                    {matchedSubscription.name}
+                  </span>
+                )}
+              </div>
+
+              <div
+                data-no-sheet-drag="true"
+                className="grid grid-cols-2 gap-1.5 max-h-[120px] overflow-y-auto overscroll-y-contain pr-1 ios-scroll touch-pan-y rounded-2xl border border-[var(--border)] bg-[var(--surface-2)] p-2"
+              >
+                {POPULAR_SUBSCRIPTIONS.map((sub) => {
+                  const isSelected = matchedSubscription?.id === sub.id;
+                  return (
+                    <button
+                      key={sub.id}
+                      type="button"
+                      onClick={() => handleSelectSubscription(sub)}
+                      className={`flex items-center justify-between gap-2 p-1.5 rounded-xl border text-left transition-transform duration-100 active:scale-95 min-w-0 ${
+                        isSelected
+                          ? 'border-[var(--primary)] bg-[var(--primary)]/12 text-[var(--text)]'
+                          : 'border-[var(--border)] bg-[var(--surface)] text-[var(--text-muted)] hover:text-[var(--text)]'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2 min-w-0">
+                        <SubscriptionLogo subscription={sub} size="sm" />
+                        <span className="text-xs font-semibold truncate">{sub.name}</span>
+                      </div>
+                      {isSelected && (
+                        <Check className="w-3.5 h-3.5 text-[var(--primary-bright)] shrink-0" />
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           {/* One-Tap Payment Method Chips (No clunky iOS picker wheel) */}
           <div

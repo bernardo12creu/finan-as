@@ -3,6 +3,8 @@ import { Transaction, Category } from '@/data/db';
 import { formatCentsToBRL } from '@/shared/lib/money';
 import { formatFriendlyDate } from '@/shared/lib/dates';
 import { CategoryIcon } from '@/shared/ui/CategoryIcon';
+import { SubscriptionLogo } from '@/shared/ui/SubscriptionLogo';
+import { matchSubscriptionByName } from '@/shared/lib/subscriptions';
 import { CalendarClock, CreditCard, Trash2 } from 'lucide-react';
 
 export interface TransactionItemProps {
@@ -27,6 +29,14 @@ export const TransactionItem: React.FC<TransactionItemProps> = React.memo(
   }) => {
     const isExpense = transaction.type === 'expense';
     const isPlanned = transaction.status === 'planned';
+    const isSubscriptionCat = Boolean(
+      category &&
+        (category.id.endsWith('cat_assinaturas') ||
+          category.name.toLowerCase().includes('assinatura'))
+    );
+    const matchedSubscription = isSubscriptionCat
+      ? matchSubscriptionByName(transaction.description)
+      : undefined;
 
     const cardRef = useRef<HTMLDivElement>(null);
     const actionRef = useRef<HTMLButtonElement>(null);
@@ -222,13 +232,17 @@ export const TransactionItem: React.FC<TransactionItemProps> = React.memo(
           className="relative z-10 flex items-center justify-between p-3.5 rounded-2xl bg-[var(--surface)] border border-[var(--border)] hover:bg-[var(--surface-2)] active:scale-[0.99] transition-transform duration-100 cursor-pointer min-h-[56px]"
         >
           <div className="flex items-center gap-3 min-w-0">
-            {/* Category Icon Badge */}
-            <div
-              className="w-11 h-11 rounded-2xl flex items-center justify-center text-white shrink-0 shadow-xs"
-              style={{ backgroundColor: category?.color || '#262626' }}
-            >
-              <CategoryIcon name={category?.icon || 'Tag'} className="w-5 h-5" />
-            </div>
+            {/* Category / Subscription Brand Badge */}
+            {matchedSubscription ? (
+              <SubscriptionLogo subscription={matchedSubscription} size="lg" />
+            ) : (
+              <div
+                className="w-11 h-11 rounded-2xl flex items-center justify-center text-white shrink-0 shadow-xs"
+                style={{ backgroundColor: category?.color || '#262626' }}
+              >
+                <CategoryIcon name={category?.icon || 'Tag'} className="w-5 h-5" />
+              </div>
+            )}
 
             {/* Description & metadata */}
             <div className="flex flex-col min-w-0">

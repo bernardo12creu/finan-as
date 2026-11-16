@@ -3,6 +3,7 @@ import { AppDatabase } from '@/data/db';
 import { LocalTransactionRepository, LocalCategoryRepository } from './localRepository';
 import { useSessionStore } from '@/data/session';
 import { generateInstallmentPlan } from '@/shared/lib/installments';
+import { mergeByUpdatedAt } from '@/data/supabaseSync';
 
 describe('multi-workspace data isolation', () => {
   let testDb: AppDatabase;
@@ -156,5 +157,27 @@ describe('multi-workspace data isolation', () => {
       expect(tx.amountCents).toBe(expected.amountCents);
       expect(tx.status).toBe(expected.installmentNumber <= 10 ? 'confirmed' : 'planned');
     });
+  });
+
+  it('guarantees bidirectional sync never loses local-only records or newer local edits', () => {
+    const localItems = [
+      { id: '1', updatedAt: '2026-11-16T12:00:00Z', name: 'Newer Local Card' },
+      { id: '2', updatedAt: '2026-11-16T10:00:00Z', name: 'Outdated Local Tx' },
+      { id: '3', updatedAt: '2026-11-16T11:00:00Z', name: 'Offline Local Only' },
+    ];
+    const remoteItems = [
+      { id: '1', updatedAt: '2026-11-16T09:00:00Z', name: 'Stale Cloud Card' },
+      { id: '2', updatedAt: '2026-11-16T12:30:00Z', name: 'Newer Cloud Tx' },
+      { id: '4', updatedAt: '2026-11-16T08:00:00Z', name: 'Other Device Tx' },
+    ];
+
+    const { toSaveLocally, toPushRemotely } = mergeByUpdatedAt(localItems, remoteItems);
+
+    expect(toSaveLocally.map((i) => i.id)).toEqual(['2', '4']);
+    expect(toSaveLocally.find((i) => i.id === '2')?.name).toBe('Newer Cloud Tx');
+
+    expect(toPushRemotely.map((i) => i.id)).toEqual(['1', '3']);
+    expect(toPushRemotely.find((i) => i.id === '1')?.name).toBe('Newer Local Card');
+    expect(toPushRemotely.find((i) => i.id === '3')?.name).toBe('Offline Local Only');
   });
 });

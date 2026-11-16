@@ -2,7 +2,7 @@ import type { User } from '@supabase/supabase-js';
 import { db, Category, Account } from '@/data/db';
 import { useSessionStore } from '@/data/session';
 import { supabase } from '@/data/supabaseClient';
-import { pullWorkspaceFromSupabase } from '@/data/supabaseSync';
+import { pullWorkspaceFromSupabase, syncAccountToSupabase } from '@/data/supabaseSync';
 
 export const DEFAULT_CATEGORIES: Array<{
   slug: string;
@@ -138,6 +138,18 @@ export async function bootstrapForAuthUser(
 
   // Pull cloud records for this user's workspace
   await pullWorkspaceFromSupabase(workspaceId, userId);
+
+  // Clean up lingering QA test account ("Teste v11") if present
+  const qaAccounts = await db.accounts
+    .where('workspaceId')
+    .equals(workspaceId)
+    .filter((a) => !a.deletedAt && a.name.trim().toLowerCase() === 'teste v11')
+    .toArray();
+  if (qaAccounts.length > 0) {
+    const cleaned = qaAccounts.map((a) => ({ ...a, deletedAt: now, updatedAt: now }));
+    await db.accounts.bulkPut(cleaned);
+    syncAccountToSupabase(cleaned);
+  }
 
   // If still no local categories/accounts (e.g. offline first sign-in), seed workspace-scoped defaults locally
   const localCatCount = await db.categories.where('workspaceId').equals(workspaceId).count();

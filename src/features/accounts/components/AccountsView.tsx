@@ -1,6 +1,6 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { CreditCard, Wallet, Building2, Plus, ArrowLeft, Check } from 'lucide-react';
+import { CreditCard, Wallet, Building2, Plus, ArrowLeft, Check, Trash2 } from 'lucide-react';
 import { Card } from '@/shared/ui/Card';
 import { Button } from '@/shared/ui/Button';
 import { Sheet } from '@/shared/ui/Sheet';
@@ -14,7 +14,7 @@ import { useAccounts, useTransactions } from '@/data/hooks';
 import { accountRepository } from '@/data/repositories/local/localRepository';
 import { useSessionStore } from '@/data/session';
 import { showToast } from '@/shared/ui/toastStore';
-import { AccountKind } from '@/data/db';
+import { Account, AccountKind } from '@/data/db';
 
 const ACCOUNT_KIND_OPTIONS: Array<{ value: AccountKind; label: string }> = [
   { value: 'credit_card', label: 'Cartão' },
@@ -35,6 +35,33 @@ export const AccountsView: React.FC = () => {
   const [kind, setKind] = useState<AccountKind>('credit_card');
   const [closingDay, setClosingDay] = useState<number>(25);
   const [dueDay, setDueDay] = useState<number>(5);
+  const [accountToDelete, setAccountToDelete] = useState<Account | null>(null);
+
+  // Clean up lingering QA test account ("Teste v11") if present in user's workspace
+  useEffect(() => {
+    const qaAccount = accounts.find((acc) => acc.name.trim().toLowerCase() === 'teste v11');
+    if (qaAccount) {
+      void accountRepository.archive(qaAccount.id);
+    }
+  }, [accounts]);
+
+  const handleConfirmDeleteAccount = async () => {
+    if (!accountToDelete) return;
+    const target = accountToDelete;
+    await accountRepository.archive(target.id);
+    setAccountToDelete(null);
+    showToast({
+      message: `"${target.name}" removida com sucesso!`,
+      type: 'info',
+      action: {
+        label: 'Desfazer',
+        onClick: async () => {
+          await accountRepository.update(target.id, { deletedAt: undefined });
+          showToast({ message: `"${target.name}" restaurada!`, type: 'success' });
+        },
+      },
+    });
+  };
 
   const activeBank = useMemo(() => {
     if (selectedBankId) return getBankById(selectedBankId);
@@ -157,6 +184,15 @@ export const AccountsView: React.FC = () => {
                         </div>
                       </div>
                     </div>
+                    <button
+                      type="button"
+                      onClick={() => setAccountToDelete(card)}
+                      className="p-2 rounded-xl text-[var(--text-muted)] hover:text-[var(--danger)] hover:bg-white/[0.05] active:scale-90 transition-all"
+                      aria-label={`Excluir ${card.name}`}
+                      title={`Excluir ${card.name}`}
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
                   </div>
 
                   <div className="pt-2 border-t border-[var(--border)] flex items-center justify-between">
@@ -202,6 +238,15 @@ export const AccountsView: React.FC = () => {
                     </span>
                   </div>
                 </div>
+                <button
+                  type="button"
+                  onClick={() => setAccountToDelete(acc)}
+                  className="p-2 rounded-xl text-[var(--text-muted)] hover:text-[var(--danger)] hover:bg-white/[0.05] active:scale-90 transition-all"
+                  aria-label={`Excluir ${acc.name}`}
+                  title={`Excluir ${acc.name}`}
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
               </Card>
             );
           })}
@@ -374,6 +419,25 @@ export const AccountsView: React.FC = () => {
               </div>
             </div>
           )}
+        </div>
+      </Sheet>
+
+      {/* Delete Account Confirmation Sheet */}
+      <Sheet
+        isOpen={Boolean(accountToDelete)}
+        onClose={() => setAccountToDelete(null)}
+        title={accountToDelete ? `Excluir "${accountToDelete.name}"?` : 'Excluir conta?'}
+      >
+        <div className="flex flex-col gap-3">
+          <p className="text-sm text-[var(--text-muted)]">
+            A conta será removida da lista, mas os lançamentos antigos associados a ela continuam preservados no seu histórico.
+          </p>
+          <Button variant="danger" size="lg" fullWidth onClick={handleConfirmDeleteAccount}>
+            Excluir Conta
+          </Button>
+          <Button variant="ghost" size="md" fullWidth onClick={() => setAccountToDelete(null)}>
+            Cancelar
+          </Button>
         </div>
       </Sheet>
     </div>

@@ -100,42 +100,74 @@ export function syncAccountToSupabase(acc: Account | Account[]): void {
   void upsertRows('accounts', rows, 'id');
 }
 
-export function syncBudgetToSupabase(b: Budget): void {
-  void upsertRows(
-    'budgets',
-    {
-      id: b.id,
-      workspace_id: b.workspaceId,
-      created_by: b.createdBy,
-      created_at: b.createdAt,
-      updated_at: b.updatedAt,
-      deleted_at: b.deletedAt ?? null,
-      competence: b.competence,
-      category_id: b.categoryId,
-      limit_cents: b.limitCents,
-    },
-    'id'
-  );
+export function syncBudgetToSupabase(b: Budget | Budget[]): void {
+  const list = Array.isArray(b) ? b : [b];
+  if (list.length === 0) return;
+  const rows = list.map((item) => ({
+    id: item.id,
+    workspace_id: item.workspaceId,
+    created_by: item.createdBy,
+    created_at: item.createdAt,
+    updated_at: item.updatedAt,
+    deleted_at: item.deletedAt ?? null,
+    competence: item.competence,
+    category_id: item.categoryId,
+    limit_cents: item.limitCents,
+  }));
+  void upsertRows('budgets', rows, 'id');
 }
 
-export function syncRecurringRuleToSupabase(r: RecurringRule): void {
-  void upsertRows(
-    'recurring_rules',
-    {
-      id: r.id,
-      workspace_id: r.workspaceId,
-      created_by: r.createdBy,
-      created_at: r.createdAt,
-      updated_at: r.updatedAt,
-      deleted_at: r.deletedAt ?? null,
-      template_transaction: r.templateTransaction,
-      day_of_month: r.dayOfMonth,
-      start_competence: r.startCompetence,
-      end_competence: r.endCompetence ?? null,
-      active: r.active,
-    },
-    'id'
-  );
+export function syncRecurringRuleToSupabase(r: RecurringRule | RecurringRule[]): void {
+  const list = Array.isArray(r) ? r : [r];
+  if (list.length === 0) return;
+  const rows = list.map((item) => ({
+    id: item.id,
+    workspace_id: item.workspaceId,
+    created_by: item.createdBy,
+    created_at: item.createdAt,
+    updated_at: item.updatedAt,
+    deleted_at: item.deletedAt ?? null,
+    template_transaction: item.templateTransaction,
+    day_of_month: item.dayOfMonth,
+    start_competence: item.startCompetence,
+    end_competence: item.endCompetence ?? null,
+    active: item.active,
+  }));
+  void upsertRows('recurring_rules', rows, 'id');
+}
+
+/**
+ * Non-destructive bidirectional merge by `updatedAt`:
+ * - Keeps local-only records and pushes them to Supabase so offline/unsynced edits are never lost.
+ * - Preserves newer local edits when `local.updatedAt > remote.updatedAt` and pushes them to Supabase.
+ * - Applies remote updates locally when `remote.updatedAt >= local.updatedAt` or missing locally.
+ */
+export function mergeByUpdatedAt<T extends { id: string; updatedAt: string }>(
+  localItems: T[],
+  remoteItems: T[]
+): { toSaveLocally: T[]; toPushRemotely: T[] } {
+  const localMap = new Map(localItems.map((item) => [item.id, item]));
+  const remoteMap = new Map(remoteItems.map((item) => [item.id, item]));
+
+  const toSaveLocally: T[] = [];
+  const toPushRemotely: T[] = [];
+
+  for (const remote of remoteItems) {
+    const local = localMap.get(remote.id);
+    if (!local || remote.updatedAt >= local.updatedAt) {
+      toSaveLocally.push(remote);
+    } else {
+      toPushRemotely.push(local);
+    }
+  }
+
+  for (const local of localItems) {
+    if (!remoteMap.has(local.id)) {
+      toPushRemotely.push(local);
+    }
+  }
+
+  return { toSaveLocally, toPushRemotely };
 }
 
 export function syncSettingsToSupabase(s: WorkspaceSettings): void {
@@ -285,101 +317,124 @@ export async function pullWorkspaceFromSupabase(
     const remoteSettings = settingsRes.data as RemoteSettings | null;
     const remotePrefs = prefsRes.data as RemotePreferences | null;
 
-    if (remoteCats.length > 0) {
-      await db.categories.bulkPut(
-        remoteCats.map((c) => ({
-          id: c.id,
-          workspaceId: c.workspace_id,
-          createdBy: c.created_by,
-          createdAt: c.created_at,
-          updatedAt: c.updated_at,
-          deletedAt: c.deleted_at ?? undefined,
-          name: c.name,
-          icon: c.icon,
-          color: c.color,
-          type: c.type,
-          archived: c.archived,
-        }))
-      );
+    const [localCats, localAccs, localTxs, localBudgets, localRules] = await Promise.all([
+      db.categories.where('workspaceId').equals(workspaceId).toArray(),
+      db.accounts.where('workspaceId').equals(workspaceId).toArray(),
+      db.transactions.where('workspaceId').equals(workspaceId).toArray(),
+      db.budgets.where('workspaceId').equals(workspaceId).toArray(),
+      db.recurringRules.where('workspaceId').equals(workspaceId).toArray(),
+    ]);
+
+    const mappedRemoteCats: Category[] = remoteCats.map((c) => ({
+      id: c.id,
+      workspaceId: c.workspace_id,
+      createdBy: c.created_by,
+      createdAt: c.created_at,
+      updatedAt: c.updated_at,
+      deletedAt: c.deleted_at ?? undefined,
+      name: c.name,
+      icon: c.icon,
+      color: c.color,
+      type: c.type,
+      archived: c.archived,
+    }));
+    const catMerge = mergeByUpdatedAt(localCats, mappedRemoteCats);
+    if (catMerge.toSaveLocally.length > 0) {
+      await db.categories.bulkPut(catMerge.toSaveLocally);
+    }
+    if (catMerge.toPushRemotely.length > 0) {
+      syncCategoryToSupabase(catMerge.toPushRemotely);
     }
 
-    if (remoteAccs.length > 0) {
-      await db.accounts.bulkPut(
-        remoteAccs.map((a) => ({
-          id: a.id,
-          workspaceId: a.workspace_id,
-          createdBy: a.created_by,
-          createdAt: a.created_at,
-          updatedAt: a.updated_at,
-          deletedAt: a.deleted_at ?? undefined,
-          name: a.name,
-          kind: a.kind,
-          ownerId: a.owner_id,
-          closingDay: a.closing_day ?? undefined,
-          dueDay: a.due_day ?? undefined,
-        }))
-      );
+    const mappedRemoteAccs: Account[] = remoteAccs.map((a) => ({
+      id: a.id,
+      workspaceId: a.workspace_id,
+      createdBy: a.created_by,
+      createdAt: a.created_at,
+      updatedAt: a.updated_at,
+      deletedAt: a.deleted_at ?? undefined,
+      name: a.name,
+      kind: a.kind,
+      ownerId: a.owner_id,
+      closingDay: a.closing_day ?? undefined,
+      dueDay: a.due_day ?? undefined,
+    }));
+    const accMerge = mergeByUpdatedAt(localAccs, mappedRemoteAccs);
+    if (accMerge.toSaveLocally.length > 0) {
+      await db.accounts.bulkPut(accMerge.toSaveLocally);
+    }
+    if (accMerge.toPushRemotely.length > 0) {
+      syncAccountToSupabase(accMerge.toPushRemotely);
     }
 
-    if (remoteTxs.length > 0) {
-      await db.transactions.bulkPut(
-        remoteTxs.map((t) => ({
-          id: t.id,
-          workspaceId: t.workspace_id,
-          createdBy: t.created_by,
-          createdAt: t.created_at,
-          updatedAt: t.updated_at,
-          deletedAt: t.deleted_at ?? undefined,
-          type: t.type,
-          amountCents: Number(t.amount_cents),
-          description: t.description,
-          categoryId: t.category_id,
-          accountId: t.account_id,
-          paymentMethod: t.payment_method,
-          date: t.date,
-          competence: t.competence,
-          status: t.status,
-          installment: t.installment ?? undefined,
-          recurringRuleId: t.recurring_rule_id ?? undefined,
-          tags: t.tags ?? [],
-          paidBy: t.paid_by,
-          visibility: t.visibility,
-        }))
-      );
+    const mappedRemoteTxs: Transaction[] = remoteTxs.map((t) => ({
+      id: t.id,
+      workspaceId: t.workspace_id,
+      createdBy: t.created_by,
+      createdAt: t.created_at,
+      updatedAt: t.updated_at,
+      deletedAt: t.deleted_at ?? undefined,
+      type: t.type,
+      amountCents: Number(t.amount_cents),
+      description: t.description,
+      categoryId: t.category_id,
+      accountId: t.account_id,
+      paymentMethod: t.payment_method,
+      date: t.date,
+      competence: t.competence,
+      status: t.status,
+      installment: t.installment ?? undefined,
+      recurringRuleId: t.recurring_rule_id ?? undefined,
+      tags: t.tags ?? [],
+      paidBy: t.paid_by,
+      visibility: t.visibility,
+    }));
+    const txMerge = mergeByUpdatedAt(localTxs, mappedRemoteTxs);
+    if (txMerge.toSaveLocally.length > 0) {
+      await db.transactions.bulkPut(txMerge.toSaveLocally);
+    }
+    if (txMerge.toPushRemotely.length > 0) {
+      syncTransactionToSupabase(txMerge.toPushRemotely);
     }
 
-    if (remoteBudgets.length > 0) {
-      await db.budgets.bulkPut(
-        remoteBudgets.map((b) => ({
-          id: b.id,
-          workspaceId: b.workspace_id,
-          createdBy: b.created_by,
-          createdAt: b.created_at,
-          updatedAt: b.updated_at,
-          deletedAt: b.deleted_at ?? undefined,
-          competence: b.competence,
-          categoryId: b.category_id,
-          limitCents: Number(b.limit_cents),
-        }))
-      );
+    const mappedRemoteBudgets: Budget[] = remoteBudgets.map((b) => ({
+      id: b.id,
+      workspaceId: b.workspace_id,
+      createdBy: b.created_by,
+      createdAt: b.created_at,
+      updatedAt: b.updated_at,
+      deletedAt: b.deleted_at ?? undefined,
+      competence: b.competence,
+      categoryId: b.category_id,
+      limitCents: Number(b.limit_cents),
+    }));
+    const budgetMerge = mergeByUpdatedAt(localBudgets, mappedRemoteBudgets);
+    if (budgetMerge.toSaveLocally.length > 0) {
+      await db.budgets.bulkPut(budgetMerge.toSaveLocally);
+    }
+    if (budgetMerge.toPushRemotely.length > 0) {
+      syncBudgetToSupabase(budgetMerge.toPushRemotely);
     }
 
-    if (remoteRules.length > 0) {
-      await db.recurringRules.bulkPut(
-        remoteRules.map((r) => ({
-          id: r.id,
-          workspaceId: r.workspace_id,
-          createdBy: r.created_by,
-          createdAt: r.created_at,
-          updatedAt: r.updated_at,
-          deletedAt: r.deleted_at ?? undefined,
-          templateTransaction: r.template_transaction,
-          dayOfMonth: r.day_of_month,
-          startCompetence: r.start_competence,
-          endCompetence: r.end_competence ?? undefined,
-          active: r.active,
-        }))
-      );
+    const mappedRemoteRules: RecurringRule[] = remoteRules.map((r) => ({
+      id: r.id,
+      workspaceId: r.workspace_id,
+      createdBy: r.created_by,
+      createdAt: r.created_at,
+      updatedAt: r.updated_at,
+      deletedAt: r.deleted_at ?? undefined,
+      templateTransaction: r.template_transaction,
+      dayOfMonth: r.day_of_month,
+      startCompetence: r.start_competence,
+      endCompetence: r.end_competence ?? undefined,
+      active: r.active,
+    }));
+    const ruleMerge = mergeByUpdatedAt(localRules, mappedRemoteRules);
+    if (ruleMerge.toSaveLocally.length > 0) {
+      await db.recurringRules.bulkPut(ruleMerge.toSaveLocally);
+    }
+    if (ruleMerge.toPushRemotely.length > 0) {
+      syncRecurringRuleToSupabase(ruleMerge.toPushRemotely);
     }
 
     if (remoteSettings) {

@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { generateInstallmentPlan } from './installments';
+import {
+  generateInstallmentPlan,
+  stripInstallmentSuffix,
+  formatInstallmentDescription,
+} from './installments';
 
 describe('installments generation and remainder distribution', () => {
   it('generates a single item when installmentsCount is 1', () => {
@@ -93,5 +97,15 @@ describe('installments generation and remainder distribution', () => {
     }
     const sum = plan.reduce((acc, p) => acc + p.amountCents, 0);
     expect(sum).toBe(10000);
+  });
+
+  it('strips and formats installment suffix cleanly for series editing', () => {
+    expect(stripInstallmentSuffix('Renner (10/24)')).toBe('Renner');
+    expect(stripInstallmentSuffix('Renner Roupas (1/24)')).toBe('Renner Roupas');
+    expect(stripInstallmentSuffix('Supermercado')).toBe('Supermercado');
+
+    expect(formatInstallmentDescription('Renner (10/24)', 1, 24)).toBe('Renner (1/24)');
+    expect(formatInstallmentDescription('Renner', 10, 24)).toBe('Renner (10/24)');
+    expect(formatInstallmentDescription('Avulso (1/1)', 1, 1)).toBe('Avulso');
   });
 });

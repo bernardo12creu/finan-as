@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { AppDatabase } from '@/data/db';
 import { LocalTransactionRepository, LocalCategoryRepository } from './localRepository';
 import { useSessionStore } from '@/data/session';
+import { generateInstallmentPlan } from '@/shared/lib/installments';
 
 describe('multi-workspace data isolation', () => {
   let testDb: AppDatabase;
@@ -96,5 +97,64 @@ describe('multi-workspace data isolation', () => {
     useSessionStore.getState().setSession('usr_beta', 'ws_beta');
     const betaCats = await catRepo.list();
     expect(betaCats).toHaveLength(0);
+  });
+
+  it('updates all 24 installments (including past/confirmed 1..9 and future 11..24) when editing installment 10/24 via updateSeries', async () => {
+    useSessionStore.getState().setSession('usr_alpha', 'ws_alpha');
+
+    const groupId = 'group_renner_24x';
+    const plan = generateInstallmentPlan({
+      totalAmountCents: 100000, // R$ 1.000,00 in 24x -> remainder goes to 1/24
+      installmentsCount: 24,
+      firstDate: '2026-01-10',
+      initialCompetence: '2026-01',
+      baseDescription: 'Renner',
+    });
+
+    const created = await txRepo.createMany(
+      plan.map((item) => ({
+        type: 'expense',
+        amountCents: item.amountCents,
+        description: item.description,
+        categoryId: 'cat_alimentacao',
+        accountId: 'acc_old',
+        paymentMethod: 'credit',
+        date: item.date,
+        competence: item.competence,
+        status: item.installmentNumber <= 10 ? 'confirmed' : 'planned',
+        installment: {
+          groupId,
+          number: item.installmentNumber,
+          total: item.totalInstallments,
+        },
+      }))
+    );
+
+    expect(created).toHaveLength(24);
+    const installment10 = created.find((t) => t.installment?.number === 10)!;
+    expect(installment10).toBeDefined();
+
+    const updatedCount = await txRepo.updateSeries(installment10.id, {
+      categoryId: 'cat_compras',
+      accountId: 'acc_nubank',
+      baseDescription: 'Renner Roupas',
+    });
+
+    expect(updatedCount).toBe(24);
+
+    const siblingsAfter = await txRepo.findSeriesSiblings(installment10.id);
+    expect(siblingsAfter).toHaveLength(24);
+
+    siblingsAfter.forEach((tx, idx) => {
+      const expected = plan[idx];
+      expect(tx.installment?.number).toBe(expected.installmentNumber);
+      expect(tx.categoryId).toBe('cat_compras');
+      expect(tx.accountId).toBe('acc_nubank');
+      expect(tx.description).toBe(`Renner Roupas (${expected.installmentNumber}/24)`);
+      expect(tx.date).toBe(expected.date);
+      expect(tx.competence).toBe(expected.competence);
+      expect(tx.amountCents).toBe(expected.amountCents);
+      expect(tx.status).toBe(expected.installmentNumber <= 10 ? 'confirmed' : 'planned');
+    });
   });
 });

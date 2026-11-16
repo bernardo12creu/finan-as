@@ -9,11 +9,13 @@ import {
   ISettingsRepository,
   CreateTransactionDTO,
   TransactionFilters,
+  UpdateSeriesParams,
 } from '../interfaces';
 import { determineTransactionCompetence } from '@/shared/lib/competence';
 import { isRuleActiveForCompetence, getRecurrenceDateForCompetence } from '@/shared/lib/recurrence';
+import { stripInstallmentSuffix, formatInstallmentDescription } from '@/shared/lib/installments';
 import { getPreviousCompetence } from '@/shared/lib/dates';
-import { addDays, format } from 'date-fns';
+import { addDays, addMonths, format, parseISO } from 'date-fns';
 import {
   syncTransactionToSupabase,
   syncCategoryToSupabase,
@@ -209,6 +211,181 @@ export class LocalTransactionRepository implements ITransactionRepository {
       updatedAt,
     });
     syncTransactionToSupabase({ ...existing, ...updates, updatedAt });
+  }
+
+  async findSeriesSiblings(id: string): Promise<Transaction[]> {
+    const { workspaceId } = this.getSessionContext();
+    const anchor = await this.getById(id);
+    if (!anchor) return [];
+
+    const allWorkspaceTx = await this.database.transactions
+      .where('workspaceId')
+      .equals(workspaceId)
+      .filter((t) => !t.deletedAt)
+      .toArray();
+
+    // Priority 1: Explicit installment group (including all past/completed & future installments)
+    if (anchor.installment?.groupId) {
+      let groupMatches = allWorkspaceTx.filter(
+        (t) => t.installment?.groupId === anchor.installment?.groupId
+      );
+
+      // Fallback for legacy/imported installments whose groupId might differ or be missing
+      if (groupMatches.length <= 1 && anchor.installment.total > 1) {
+        const anchorBase = stripInstallmentSuffix(anchor.description).toLowerCase();
+        const fallbackMatches = allWorkspaceTx.filter(
+          (t) =>
+            t.installment?.total === anchor.installment?.total &&
+            stripInstallmentSuffix(t.description).toLowerCase() === anchorBase
+        );
+        if (fallbackMatches.length > groupMatches.length) {
+          groupMatches = fallbackMatches;
+        }
+      }
+
+      return groupMatches.sort(
+        (a, b) => (a.installment?.number || 0) - (b.installment?.number || 0)
+      );
+    }
+
+    // Priority 2: Explicit recurring rule
+    if (anchor.recurringRuleId) {
+      return allWorkspaceTx
+        .filter((t) => t.recurringRuleId === anchor.recurringRuleId)
+        .sort((a, b) => a.date.localeCompare(b.date));
+    }
+
+    // Priority 3: Same-species repeated description within workspace
+    const anchorBase = stripInstallmentSuffix(anchor.description).toLowerCase();
+    if (!anchorBase) return [anchor];
+
+    return allWorkspaceTx
+      .filter(
+        (t) =>
+          t.type === anchor.type &&
+          stripInstallmentSuffix(t.description).toLowerCase() === anchorBase
+      )
+      .sort((a, b) => a.date.localeCompare(b.date));
+  }
+
+  async updateSeries(anchorId: string, params: UpdateSeriesParams): Promise<number> {
+    const { workspaceId } = this.getSessionContext();
+    const anchor = await this.getById(anchorId);
+    if (!anchor || anchor.workspaceId !== workspaceId) {
+      throw new Error('Transação não encontrada ou acesso negado');
+    }
+
+    const siblings = await this.findSeriesSiblings(anchorId);
+    const targets = siblings.length > 0 ? siblings : [anchor];
+
+    const settings = await this.database.settings.get(workspaceId);
+    const competenceMode = settings?.competenceMode || 'purchase_date';
+
+    const accountCache = new Map<string, Account | undefined>();
+    const getCachedAccount = async (accountId: string): Promise<Account | undefined> => {
+      if (!accountId) return undefined;
+      if (accountCache.has(accountId)) return accountCache.get(accountId);
+      const acc = await this.database.accounts.get(accountId);
+      accountCache.set(accountId, acc);
+      return acc;
+    };
+
+    const now = new Date().toISOString();
+    const updatedRecords: Transaction[] = [];
+
+    for (const t of targets) {
+      const nextType = params.type ?? t.type;
+      const nextCategoryId = params.categoryId ?? t.categoryId;
+      const nextAccountId = params.accountId ?? t.accountId;
+      const nextPaymentMethod = params.paymentMethod ?? t.paymentMethod;
+      const nextAmountCents =
+        params.amountCents !== undefined ? params.amountCents : t.amountCents;
+
+      const nextDescription =
+        params.baseDescription !== undefined
+          ? t.installment && t.installment.total > 1
+            ? formatInstallmentDescription(
+                params.baseDescription,
+                t.installment.number,
+                t.installment.total
+              )
+            : stripInstallmentSuffix(params.baseDescription)
+          : t.description;
+
+      let nextDate = t.date;
+      if (params.anchorDate && params.anchorDate !== anchor.date) {
+        if (t.installment && anchor.installment) {
+          const offsetMonths = t.installment.number - anchor.installment.number;
+          nextDate = format(addMonths(parseISO(params.anchorDate), offsetMonths), 'yyyy-MM-dd');
+        } else if (t.id === anchor.id) {
+          nextDate = params.anchorDate;
+        }
+      }
+
+      let nextCompetence = t.competence;
+      if (
+        nextDate !== t.date ||
+        (nextAccountId !== t.accountId && competenceMode === 'invoice_month')
+      ) {
+        const account =
+          nextPaymentMethod === 'credit' ? await getCachedAccount(nextAccountId) : undefined;
+        nextCompetence = determineTransactionCompetence({
+          date: nextDate,
+          paymentMethod: nextPaymentMethod,
+          cardClosingDay: account?.closingDay,
+          competenceMode,
+        });
+      }
+
+      updatedRecords.push({
+        ...t,
+        type: nextType,
+        categoryId: nextCategoryId,
+        accountId: nextAccountId,
+        paymentMethod: nextPaymentMethod,
+        amountCents: nextAmountCents,
+        description: nextDescription,
+        date: nextDate,
+        competence: nextCompetence,
+        updatedAt: now,
+      });
+    }
+
+    if (updatedRecords.length > 0) {
+      await this.database.transactions.bulkPut(updatedRecords);
+      syncTransactionToSupabase(updatedRecords);
+    }
+
+    // Keep linked recurring rule template in sync so future auto-generated months inherit edits
+    if (anchor.recurringRuleId) {
+      const rule = await this.database.recurringRules.get(anchor.recurringRuleId);
+      if (rule && rule.workspaceId === workspaceId && !rule.deletedAt) {
+        const nextTemplate = {
+          ...rule.templateTransaction,
+          type: params.type ?? rule.templateTransaction.type,
+          categoryId: params.categoryId ?? rule.templateTransaction.categoryId,
+          accountId: params.accountId ?? rule.templateTransaction.accountId,
+          paymentMethod: params.paymentMethod ?? rule.templateTransaction.paymentMethod,
+          description:
+            params.baseDescription !== undefined
+              ? stripInstallmentSuffix(params.baseDescription)
+              : rule.templateTransaction.description,
+          amountCents:
+            params.amountCents !== undefined
+              ? params.amountCents
+              : rule.templateTransaction.amountCents,
+        };
+        const updatedRule: RecurringRule = {
+          ...rule,
+          templateTransaction: nextTemplate,
+          updatedAt: now,
+        };
+        await this.database.recurringRules.put(updatedRule);
+        syncRecurringRuleToSupabase(updatedRule);
+      }
+    }
+
+    return updatedRecords.length;
   }
 
   async softDelete(id: string): Promise<void> {

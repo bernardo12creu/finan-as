@@ -8,7 +8,11 @@ import { BankLogo } from '@/shared/ui/BankLogo';
 import { matchBankByName } from '@/shared/lib/banks';
 import { formatCentsToBRL, keypadInputToCents } from '@/shared/lib/money';
 import { getTodayDateString, formatFriendlyDate } from '@/shared/lib/dates';
-import { generateInstallmentPlan } from '@/shared/lib/installments';
+import {
+  generateInstallmentPlan,
+  stripInstallmentSuffix,
+  formatInstallmentDescription,
+} from '@/shared/lib/installments';
 import { useCategories, useAccounts } from '@/data/hooks';
 import { transactionRepository, settingsRepository } from '@/data/repositories/local/localRepository';
 import { useTransactionModalStore } from '../transactionModalStore';
@@ -25,6 +29,7 @@ import {
   Wallet,
   Tag,
   Check,
+  Layers,
 } from 'lucide-react';
 
 const PAYMENT_OPTIONS: Array<{
@@ -40,7 +45,7 @@ const PAYMENT_OPTIONS: Array<{
   { value: 'transfer', label: 'Transf.', icon: ArrowLeftRight },
 ];
 
-const INSTALLMENT_PRESETS = [1, 2, 3, 4, 5, 6, 10, 12];
+const INSTALLMENT_PRESETS = Array.from({ length: 24 }, (_, i) => i + 1);
 const LAST_PAYMENT_KEY = 'fecho_last_payment_method';
 
 function getCachedPaymentMethod(): PaymentMethod {
@@ -75,6 +80,8 @@ export const TransactionModal: React.FC = () => {
   const [showDatePicker, setShowDatePicker] = useState<boolean>(false);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [showDeleteSheet, setShowDeleteSheet] = useState<boolean>(false);
+  const [applyToSeries, setApplyToSeries] = useState<boolean>(true);
+  const [seriesSiblingsCount, setSeriesSiblingsCount] = useState<number>(1);
 
   const { categories } = useCategories(type);
   const { accounts } = useAccounts();
@@ -106,15 +113,17 @@ export const TransactionModal: React.FC = () => {
     if (isOpen) {
       setShowDeleteSheet(false);
       setShowDatePicker(false);
+      setApplyToSeries(true);
       if (editingTransaction) {
         setType(editingTransaction.type);
         setAmountCents(editingTransaction.amountCents);
-        setDescription(editingTransaction.description);
+        setDescription(stripInstallmentSuffix(editingTransaction.description));
         setCategoryId(editingTransaction.categoryId);
         setAccountId(editingTransaction.accountId);
         setPaymentMethod(editingTransaction.paymentMethod);
         setDate(editingTransaction.date);
         setInstallmentsCount(editingTransaction.installment?.total || 1);
+        setSeriesSiblingsCount(editingTransaction.installment?.total || 1);
       } else {
         setType(defaultType);
         setAmountCents(0);
@@ -125,11 +134,29 @@ export const TransactionModal: React.FC = () => {
         }
         setDate(getTodayDateString());
         setInstallmentsCount(1);
+        setSeriesSiblingsCount(1);
         setPaymentMethod(getCachedPaymentMethod());
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, editingTransaction, defaultType]);
+
+  // Discover all siblings in the installment/recurring/repeated series (including completed ones)
+  useEffect(() => {
+    if (!isOpen || !editingTransaction) {
+      setSeriesSiblingsCount(1);
+      return;
+    }
+    let cancelled = false;
+    transactionRepository.findSeriesSiblings(editingTransaction.id).then((list) => {
+      if (!cancelled) {
+        setSeriesSiblingsCount(list.length);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, editingTransaction]);
 
   // Ensure selected category always belongs to the active type (expense vs income)
   useEffect(() => {
@@ -150,6 +177,18 @@ export const TransactionModal: React.FC = () => {
     setAmountCents((prev) => keypadInputToCents(prev, key));
   }, []);
 
+  const isInstallmentEdit = Boolean(
+    editingTransaction?.installment && editingTransaction.installment.total > 1
+  );
+  const isRecurringEdit = Boolean(editingTransaction?.recurringRuleId);
+  const hasSeries = Boolean(
+    editingTransaction && (isInstallmentEdit || isRecurringEdit || seriesSiblingsCount > 1)
+  );
+  const effectiveSeriesCount = Math.max(
+    seriesSiblingsCount,
+    editingTransaction?.installment?.total || 1
+  );
+
   const handleSave = useCallback(async () => {
     if (isSubmitting) return;
 
@@ -166,20 +205,49 @@ export const TransactionModal: React.FC = () => {
     setIsSubmitting(true);
     try {
       if (editingTransaction) {
-        await transactionRepository.update(editingTransaction.id, {
-          type,
-          amountCents,
-          description: finalDescription,
-          categoryId: categoryId || editingTransaction.categoryId,
-          accountId: finalAccountId,
-          paymentMethod,
-          date,
-        });
+        if (hasSeries && applyToSeries) {
+          const cleanFinalDesc = stripInstallmentSuffix(finalDescription);
+          const updatedCount = await transactionRepository.updateSeries(editingTransaction.id, {
+            type,
+            categoryId: categoryId || editingTransaction.categoryId,
+            accountId: finalAccountId,
+            paymentMethod,
+            baseDescription: cleanFinalDesc,
+            amountCents: amountCents !== editingTransaction.amountCents ? amountCents : undefined,
+            anchorDate: date !== editingTransaction.date ? date : undefined,
+          });
 
-        showToast({
-          message: 'Lançamento atualizado!',
-          type: 'success',
-        });
+          showToast({
+            message: isInstallmentEdit
+              ? `Todas as ${updatedCount} parcelas foram atualizadas!`
+              : `Todos os ${updatedCount} lançamentos foram atualizados!`,
+            type: 'success',
+          });
+        } else {
+          const singleDescription =
+            editingTransaction.installment && editingTransaction.installment.total > 1
+              ? formatInstallmentDescription(
+                  finalDescription,
+                  editingTransaction.installment.number,
+                  editingTransaction.installment.total
+                )
+              : stripInstallmentSuffix(finalDescription);
+
+          await transactionRepository.update(editingTransaction.id, {
+            type,
+            amountCents,
+            description: singleDescription,
+            categoryId: categoryId || editingTransaction.categoryId,
+            accountId: finalAccountId,
+            paymentMethod,
+            date,
+          });
+
+          showToast({
+            message: 'Lançamento atualizado!',
+            type: 'success',
+          });
+        }
       } else {
         if (type === 'expense' && paymentMethod === 'credit' && installmentsCount > 1) {
           const groupId = 'group_' + Math.random().toString(36).substring(2, 10);
@@ -192,24 +260,22 @@ export const TransactionModal: React.FC = () => {
             baseDescription: finalDescription,
           });
 
-          await Promise.all(
-            plan.map((item) =>
-              transactionRepository.create({
-                type: 'expense',
-                amountCents: item.amountCents,
-                description: item.description,
-                categoryId,
-                accountId: finalAccountId,
-                paymentMethod: 'credit',
-                date: item.date,
-                status: 'confirmed',
-                installment: {
-                  groupId,
-                  number: item.installmentNumber,
-                  total: item.totalInstallments,
-                },
-              })
-            )
+          await transactionRepository.createMany(
+            plan.map((item) => ({
+              type: 'expense',
+              amountCents: item.amountCents,
+              description: item.description,
+              categoryId,
+              accountId: finalAccountId,
+              paymentMethod: 'credit',
+              date: item.date,
+              status: 'confirmed',
+              installment: {
+                groupId,
+                number: item.installmentNumber,
+                total: item.totalInstallments,
+              },
+            }))
           );
 
           try {
@@ -280,6 +346,9 @@ export const TransactionModal: React.FC = () => {
     accountId,
     accounts,
     editingTransaction,
+    hasSeries,
+    applyToSeries,
+    isInstallmentEdit,
     paymentMethod,
     date,
     installmentsCount,
@@ -346,8 +415,23 @@ export const TransactionModal: React.FC = () => {
     });
   };
 
+  const handleDeleteAllInstallments = async () => {
+    if (!editingTransaction?.installment) return;
+    await transactionRepository.softDeleteGroup(editingTransaction.installment.groupId);
+    setShowDeleteSheet(false);
+    close();
+    showToast({
+      message: 'Todas as parcelas excluídas!',
+      type: 'info',
+    });
+  };
+
   const saveLabel = editingTransaction
-    ? 'Salvar Alterações'
+    ? hasSeries && applyToSeries
+      ? isInstallmentEdit
+        ? `Salvar nas ${effectiveSeriesCount} Parcelas`
+        : `Salvar em Todos (${effectiveSeriesCount})`
+      : 'Salvar Alterações'
     : type === 'expense'
       ? 'Salvar Gasto'
       : 'Salvar Receita';
@@ -516,6 +600,60 @@ export const TransactionModal: React.FC = () => {
             </div>
           )}
 
+          {/* Series Scope Selector Card (edit all installments/recurring including completed ones) */}
+          {hasSeries && (
+            <div
+              data-no-sheet-drag="true"
+              className="flex flex-col gap-2 p-2.5 rounded-2xl bg-[var(--surface-2)] border border-[var(--border)]"
+            >
+              <div className="flex items-center justify-between gap-2 text-[11px]">
+                <span className="flex items-center gap-1.5 font-semibold text-[var(--primary-bright)]">
+                  <Layers className="w-3.5 h-3.5 shrink-0" />
+                  {editingTransaction?.installment
+                    ? `Parcela ${editingTransaction.installment.number}/${editingTransaction.installment.total} · Compra parcelada`
+                    : isRecurringEdit
+                      ? `Lançamento recorrente (${effectiveSeriesCount}x)`
+                      : `Lançamento repetido (${effectiveSeriesCount} registros)`}
+                </span>
+              </div>
+
+              <div className="grid grid-cols-2 gap-1.5 p-1 rounded-xl bg-[var(--surface)] border border-[var(--border)]">
+                <button
+                  type="button"
+                  onClick={() => setApplyToSeries(true)}
+                  className={`py-1.5 px-2 rounded-lg text-[11px] transition-transform duration-100 active:scale-95 truncate ${
+                    applyToSeries
+                      ? 'bg-[var(--primary)] text-black font-bold shadow-xs'
+                      : 'text-[var(--text-muted)] font-semibold hover:text-[var(--text)]'
+                  }`}
+                >
+                  {isInstallmentEdit
+                    ? `Todas as ${effectiveSeriesCount} parcelas`
+                    : `Todos os ${effectiveSeriesCount} registros`}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setApplyToSeries(false)}
+                  className={`py-1.5 px-2 rounded-lg text-[11px] transition-transform duration-100 active:scale-95 truncate ${
+                    !applyToSeries
+                      ? 'bg-white text-black font-bold shadow-xs'
+                      : 'text-[var(--text-muted)] font-semibold hover:text-[var(--text)]'
+                  }`}
+                >
+                  {editingTransaction?.installment
+                    ? `Apenas esta (${editingTransaction.installment.number}/${editingTransaction.installment.total})`
+                    : 'Apenas esta (1)'}
+                </button>
+              </div>
+
+              <p className="text-[11px] text-[var(--text-muted)] leading-snug px-0.5">
+                {applyToSeries
+                  ? 'Altera categoria, cartão/conta, descrição e valor em todas as parcelas, inclusive as concluídas.'
+                  : 'Altera somente este lançamento específico.'}
+              </p>
+            </div>
+          )}
+
           {/* Category Horizontal Quick Selector */}
           <div
             data-horizontal-scroll="true"
@@ -668,7 +806,10 @@ export const TransactionModal: React.FC = () => {
 
           {editingTransaction?.installment ? (
             <>
-              <Button variant="danger" size="lg" fullWidth onClick={handleDeleteFutureInstallments}>
+              <Button variant="danger" size="lg" fullWidth onClick={handleDeleteAllInstallments}>
+                Excluir todas as parcelas (inclusive concluídas)
+              </Button>
+              <Button variant="secondary" size="lg" fullWidth onClick={handleDeleteFutureInstallments}>
                 Excluir esta e próximas parcelas
               </Button>
               <Button variant="secondary" size="lg" fullWidth onClick={handleDeleteSingle}>

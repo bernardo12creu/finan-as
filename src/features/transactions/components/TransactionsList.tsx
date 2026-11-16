@@ -353,6 +353,22 @@ export const TransactionsList: React.FC = () => {
             onClick={async () => {
               if (!pendingDeleteInstallmentTx?.installment) return;
               await transactionRepository.softDeleteGroup(
+                pendingDeleteInstallmentTx.installment.groupId
+              );
+              setPendingDeleteInstallmentTx(null);
+              showToast({ message: 'Todas as parcelas excluídas!', type: 'info' });
+            }}
+          >
+            Excluir todas as parcelas (inclusive concluídas)
+          </Button>
+
+          <Button
+            variant="secondary"
+            size="lg"
+            fullWidth
+            onClick={async () => {
+              if (!pendingDeleteInstallmentTx?.installment) return;
+              await transactionRepository.softDeleteGroup(
                 pendingDeleteInstallmentTx.installment.groupId,
                 pendingDeleteInstallmentTx.installment.number
               );

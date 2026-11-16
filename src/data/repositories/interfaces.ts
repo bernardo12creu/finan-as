@@ -36,6 +36,16 @@ export interface UpdateTransactionDTO extends Partial<CreateTransactionDTO> {
   id: string;
 }
 
+export interface UpdateSeriesParams {
+  type?: TransactionType;
+  amountCents?: number;
+  baseDescription?: string;
+  categoryId?: string;
+  accountId?: string;
+  paymentMethod?: PaymentMethod;
+  anchorDate?: string;
+}
+
 export interface TransactionFilters {
   competence?: string;
   categoryId?: string;
@@ -50,9 +60,11 @@ export interface TransactionFilters {
 export interface ITransactionRepository {
   list(filters?: TransactionFilters): Promise<Transaction[]>;
   getById(id: string): Promise<Transaction | undefined>;
+  findSeriesSiblings(id: string): Promise<Transaction[]>;
   create(dto: CreateTransactionDTO): Promise<Transaction>;
   createMany(dtos: CreateTransactionDTO[]): Promise<Transaction[]>;
   update(id: string, updates: Partial<Transaction>): Promise<void>;
+  updateSeries(anchorId: string, params: UpdateSeriesParams): Promise<number>;
   softDelete(id: string): Promise<void>;
   softDeleteGroup(groupId: string, fromInstallmentNumber?: number): Promise<void>;
   restore(id: string): Promise<void>;

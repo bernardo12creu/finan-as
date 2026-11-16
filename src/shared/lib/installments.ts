@@ -10,6 +10,27 @@ export interface InstallmentPlanItem {
 }
 
 /**
+ * Strips any trailing "(i/n)" installment suffix so base descriptions can be
+ * edited cleanly and re-applied uniformly across all installments.
+ */
+export function stripInstallmentSuffix(description: string): string {
+  return description.replace(/\s*\(\d+\/\d+\)\s*$/, '').trim();
+}
+
+/**
+ * Formats a clean base description with "(number/total)" when total > 1.
+ */
+export function formatInstallmentDescription(
+  baseDescription: string,
+  installmentNumber: number,
+  totalInstallments: number
+): string {
+  const cleanBase = stripInstallmentSuffix(baseDescription);
+  if (totalInstallments <= 1) return cleanBase;
+  return `${cleanBase} (${installmentNumber}/${totalInstallments})`;
+}
+
+/**
  * Calculates installment amounts and dates, distributing any remainder cents
  * onto the first installment so that the sum of parts exactly equals the total.
  */
@@ -28,6 +49,8 @@ export function generateInstallmentPlan(params: {
     baseDescription,
   } = params;
 
+  const cleanBase = stripInstallmentSuffix(baseDescription);
+
   if (installmentsCount <= 1) {
     return [
       {
@@ -36,7 +59,7 @@ export function generateInstallmentPlan(params: {
         amountCents: totalAmountCents,
         date: firstDate,
         competence: initialCompetence,
-        description: baseDescription,
+        description: cleanBase,
       },
     ];
   }
@@ -67,7 +90,7 @@ export function generateInstallmentPlan(params: {
       amountCents: amount,
       date: dateStr,
       competence: competenceStr,
-      description: `${baseDescription} (${i}/${installmentsCount})`,
+      description: formatInstallmentDescription(cleanBase, i, installmentsCount),
     });
   }
 

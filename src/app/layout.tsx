@@ -3,6 +3,9 @@ import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { Home, ReceiptText, Plus, BarChart3, Settings } from 'lucide-react';
 import { useTransactionModalStore } from '@/features/transactions/transactionModalStore';
 import { TransactionModal } from '@/features/transactions/components/TransactionModal';
+import { PatchNotesModal } from '@/shared/ui/PatchNotesModal';
+import { usePatchNotesModalStore } from '@/shared/lib/patchNotes';
+import { getTodayDateString } from '@/shared/lib/dates';
 
 export const AppLayout: React.FC = () => {
   const { openCreate } = useTransactionModalStore();
@@ -162,6 +165,12 @@ export const AppLayout: React.FC = () => {
     scrollRef.current?.scrollTo({ top: 0, behavior: 'instant' as ScrollBehavior });
   }, [location.pathname]);
 
+  // Show Update Patch Notes at most 1x per day for 3 days when entering the system
+  const checkAndOpenForToday = usePatchNotesModalStore((s) => s.checkAndOpenForToday);
+  useEffect(() => {
+    checkAndOpenForToday(getTodayDateString());
+  }, [checkAndOpenForToday]);
+
   const navItems = [
     { to: '/', label: 'Início', icon: Home, end: true },
     { to: '/lancamentos', label: 'Lançamentos', icon: ReceiptText },
@@ -180,8 +189,9 @@ export const AppLayout: React.FC = () => {
         <Outlet />
       </main>
 
-      {/* Global Transaction Modal */}
+      {/* Global Transaction Modal & Patch Notes Modal */}
       <TransactionModal />
+      <PatchNotesModal />
 
       {/* Native iOS Frosted Bottom Tab Bar extending edge-to-edge under Home Indicator */}
       <nav

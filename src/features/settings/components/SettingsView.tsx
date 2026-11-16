@@ -16,6 +16,7 @@ import {
   ChevronRight,
   LogOut,
   Cloud,
+  Sparkles,
 } from 'lucide-react';
 import { Card } from '@/shared/ui/Card';
 import { Button } from '@/shared/ui/Button';
@@ -30,6 +31,7 @@ import { showToast } from '@/shared/ui/toastStore';
 import { db } from '@/data/db';
 import { useSessionStore } from '@/data/session';
 import { signOutAndClearLocal } from '@/app/bootstrap';
+import { usePatchNotesModalStore } from '@/shared/lib/patchNotes';
 
 export const SettingsView: React.FC = () => {
   const navigate = useNavigate();
@@ -257,6 +259,23 @@ export const SettingsView: React.FC = () => {
             <div>
               <span className="text-sm font-semibold text-[var(--text)]">Limites de Orçamento</span>
               <p className="text-xs text-[var(--text-muted)]">Metas por categoria e mês</p>
+            </div>
+          </div>
+          <ChevronRight className="w-4 h-4 text-[var(--text-muted)]" />
+        </button>
+
+        <button
+          type="button"
+          onClick={() => usePatchNotesModalStore.getState().openManual()}
+          className="w-full p-4 flex items-center justify-between text-left hover:bg-white/[0.03] active:bg-white/[0.06] transition-colors"
+        >
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-[var(--primary)]/15 flex items-center justify-center text-[var(--primary-bright)]">
+              <Sparkles className="w-5 h-5" />
+            </div>
+            <div>
+              <span className="text-sm font-semibold text-[var(--text)]">Novidades da Atualização</span>
+              <p className="text-xs text-[var(--text-muted)]">Ver tudo que foi incluído na versão atual</p>
             </div>
           </div>
           <ChevronRight className="w-4 h-4 text-[var(--text-muted)]" />

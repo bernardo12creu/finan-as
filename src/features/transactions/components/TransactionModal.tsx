@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useLayoutEffect, useCallback } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useCallback, useMemo, useRef } from 'react';
 import { format, subDays } from 'date-fns';
 import { Sheet } from '@/shared/ui/Sheet';
 import { NumericKeypad } from '@/shared/ui/NumericKeypad';
@@ -19,10 +19,12 @@ import {
   stripInstallmentSuffix,
   formatInstallmentDescription,
 } from '@/shared/lib/installments';
+import { parseVoiceTransactions } from '@/shared/lib/voiceParser';
 import { useCategories, useAccounts } from '@/data/hooks';
 import { transactionRepository, settingsRepository } from '@/data/repositories/local/localRepository';
 import { useTransactionModalStore } from '../transactionModalStore';
 import { showToast } from '@/shared/ui/toastStore';
+import { CreateTransactionDTO } from '@/data/repositories/interfaces';
 import { PaymentMethod, TransactionType } from '@/data/db';
 import {
   Calendar,
@@ -36,7 +38,55 @@ import {
   Tag,
   Check,
   Layers,
+  Mic,
+  MicOff,
+  Sparkles,
+  X,
 } from 'lucide-react';
+
+interface SpeechRecognitionAlternativeLike {
+  transcript: string;
+}
+
+interface SpeechRecognitionResultLike {
+  isFinal: boolean;
+  length: number;
+  [index: number]: SpeechRecognitionAlternativeLike;
+}
+
+interface SpeechRecognitionEventLike {
+  results: {
+    length: number;
+    [index: number]: SpeechRecognitionResultLike;
+  };
+}
+
+interface SpeechRecognitionErrorEventLike {
+  error: string;
+}
+
+interface SpeechRecognitionInstance {
+  lang: string;
+  continuous: boolean;
+  interimResults: boolean;
+  onresult: ((event: SpeechRecognitionEventLike) => void) | null;
+  onerror: ((event: SpeechRecognitionErrorEventLike) => void) | null;
+  onend: (() => void) | null;
+  start: () => void;
+  stop: () => void;
+  abort: () => void;
+}
+
+type SpeechRecognitionConstructor = new () => SpeechRecognitionInstance;
+
+function getSpeechRecognitionConstructor(): SpeechRecognitionConstructor | null {
+  if (typeof window === 'undefined') return null;
+  const win = window as unknown as {
+    SpeechRecognition?: SpeechRecognitionConstructor;
+    webkitSpeechRecognition?: SpeechRecognitionConstructor;
+  };
+  return win.SpeechRecognition || win.webkitSpeechRecognition || null;
+}
 
 const PAYMENT_OPTIONS: Array<{
   value: PaymentMethod;
@@ -88,8 +138,17 @@ export const TransactionModal: React.FC = () => {
   const [showDeleteSheet, setShowDeleteSheet] = useState<boolean>(false);
   const [applyToSeries, setApplyToSeries] = useState<boolean>(true);
   const [seriesSiblingsCount, setSeriesSiblingsCount] = useState<number>(1);
+  const [isVoiceMode, setIsVoiceMode] = useState<boolean>(false);
+  const [isListening, setIsListening] = useState<boolean>(false);
+  const [voiceTranscript, setVoiceTranscript] = useState<string>('');
+  const [voiceInterim, setVoiceInterim] = useState<string>('');
+  const [excludedVoiceIds, setExcludedVoiceIds] = useState<string[]>([]);
+  const recognitionRef = useRef<SpeechRecognitionInstance | null>(null);
+  const baseTranscriptRef = useRef<string>('');
+  const latestTranscriptRef = useRef<string>('');
 
   const { categories } = useCategories(type);
+  const { categories: allCategories } = useCategories();
   const { accounts } = useAccounts();
 
   const todayStr = getTodayDateString();
@@ -114,12 +173,114 @@ export const TransactionModal: React.FC = () => {
     });
   }, []);
 
+  const stopListening = useCallback(() => {
+    const rec = recognitionRef.current;
+    recognitionRef.current = null;
+    if (rec) {
+      try {
+        rec.onresult = null;
+        rec.onerror = null;
+        rec.onend = null;
+        rec.stop();
+      } catch {
+        // ignore stop errors when already inactive
+      }
+    }
+    setIsListening(false);
+  }, []);
+
+  const startListening = useCallback(() => {
+    const SpeechRec = getSpeechRecognitionConstructor();
+    if (!SpeechRec) {
+      showToast({
+        message: 'Microfone indisponível neste navegador. Digite sua frase abaixo!',
+        type: 'info',
+      });
+      setIsListening(false);
+      return;
+    }
+
+    stopListening();
+
+    try {
+      const rec = new SpeechRec();
+      rec.lang = 'pt-BR';
+      rec.continuous = true;
+      rec.interimResults = true;
+      baseTranscriptRef.current = latestTranscriptRef.current.trim();
+
+      rec.onresult = (event) => {
+        let sessionFinal = '';
+        let sessionInterim = '';
+        for (let i = 0; i < event.results.length; i++) {
+          const result = event.results[i];
+          const chunk = result[0]?.transcript || '';
+          if (result.isFinal) {
+            sessionFinal += `${chunk} `;
+          } else {
+            sessionInterim += `${chunk} `;
+          }
+        }
+        const mergedFinal = [baseTranscriptRef.current, sessionFinal.trim()]
+          .filter(Boolean)
+          .join(' ')
+          .trim();
+        latestTranscriptRef.current = mergedFinal;
+        setVoiceTranscript(mergedFinal);
+        setVoiceInterim(sessionInterim.trim());
+      };
+
+      rec.onerror = (event) => {
+        if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
+          showToast({
+            message: 'Permissão do microfone negada. Você também pode digitar abaixo.',
+            type: 'error',
+          });
+        }
+        setIsListening(false);
+      };
+
+      rec.onend = () => {
+        baseTranscriptRef.current = latestTranscriptRef.current.trim();
+        setVoiceInterim('');
+        setIsListening(false);
+        recognitionRef.current = null;
+      };
+
+      recognitionRef.current = rec;
+      rec.start();
+      setIsListening(true);
+    } catch {
+      setIsListening(false);
+      showToast({
+        message: 'Não foi possível iniciar o microfone.',
+        type: 'error',
+      });
+    }
+  }, [stopListening]);
+
+  const openVoiceMode = useCallback(() => {
+    setIsVoiceMode(true);
+    startListening();
+  }, [startListening]);
+
+  const closeVoiceMode = useCallback(() => {
+    stopListening();
+    setIsVoiceMode(false);
+  }, [stopListening]);
+
   // Reset or initialize state synchronously before browser paint when modal opens
   useLayoutEffect(() => {
     if (isOpen) {
       setShowDeleteSheet(false);
       setShowDatePicker(false);
       setApplyToSeries(true);
+      setIsVoiceMode(false);
+      setVoiceTranscript('');
+      setVoiceInterim('');
+      setExcludedVoiceIds([]);
+      baseTranscriptRef.current = '';
+      latestTranscriptRef.current = '';
       if (editingTransaction) {
         setType(editingTransaction.type);
         setAmountCents(editingTransaction.amountCents);
@@ -143,9 +304,19 @@ export const TransactionModal: React.FC = () => {
         setSeriesSiblingsCount(1);
         setPaymentMethod(getCachedPaymentMethod());
       }
+    } else {
+      stopListening();
+      setIsVoiceMode(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, editingTransaction, defaultType]);
+
+  // Stop speech recognition cleanly if component unmounts
+  useEffect(() => {
+    return () => {
+      stopListening();
+    };
+  }, [stopListening]);
 
   // Discover all siblings in the installment/recurring/repeated series (including completed ones)
   useEffect(() => {
@@ -209,6 +380,130 @@ export const TransactionModal: React.FC = () => {
   const handleSelectSubscription = (sub: SubscriptionPreset) => {
     setDescription(sub.name);
   };
+
+  const fullVoiceText = [voiceTranscript, voiceInterim].filter(Boolean).join(' ').trim();
+  const speechSupported = useMemo(() => Boolean(getSpeechRecognitionConstructor()), []);
+
+  const allCategoryMap = useMemo(
+    () => new Map(allCategories.map((c) => [c.id, c])),
+    [allCategories]
+  );
+
+  const parsedVoiceItems = useMemo(() => {
+    if (!isVoiceMode || editingTransaction || !fullVoiceText) return [];
+    const defaultAccId = accountId || accounts[0]?.id || '';
+    const parsed = parseVoiceTransactions(fullVoiceText, {
+      categories: allCategories.length > 0 ? allCategories : categories,
+      accounts,
+      defaultDate: date,
+      defaultType: type,
+      defaultPaymentMethod: paymentMethod,
+      defaultAccountId: defaultAccId,
+    });
+    return parsed.filter((item) => !excludedVoiceIds.includes(item.id));
+  }, [
+    isVoiceMode,
+    editingTransaction,
+    fullVoiceText,
+    allCategories,
+    categories,
+    accounts,
+    accountId,
+    date,
+    type,
+    paymentMethod,
+    excludedVoiceIds,
+  ]);
+
+  const voiceTotalCents = useMemo(
+    () => parsedVoiceItems.reduce((sum, item) => sum + item.amountCents, 0),
+    [parsedVoiceItems]
+  );
+
+  const handleConfirmVoiceItems = useCallback(async () => {
+    if (isSubmitting) return;
+    if (parsedVoiceItems.length === 0) {
+      showToast({
+        message: 'Fale ou digite um lançamento com valor (ex: "35 reais de Uber no Pix")',
+        type: 'error',
+      });
+      return;
+    }
+
+    stopListening();
+    setIsSubmitting(true);
+    try {
+      const dtosToCreate: CreateTransactionDTO[] = [];
+
+      for (const item of parsedVoiceItems) {
+        if (item.type === 'expense' && item.paymentMethod === 'credit' && item.installmentsCount > 1) {
+          const groupId = 'group_' + Math.random().toString(36).substring(2, 10);
+          const competence = item.date.substring(0, 7);
+          const plan = generateInstallmentPlan({
+            totalAmountCents: item.amountCents,
+            installmentsCount: item.installmentsCount,
+            firstDate: item.date,
+            initialCompetence: competence,
+            baseDescription: item.description,
+          });
+
+          for (const part of plan) {
+            dtosToCreate.push({
+              type: 'expense',
+              amountCents: part.amountCents,
+              description: part.description,
+              categoryId: item.categoryId,
+              accountId: item.accountId,
+              paymentMethod: 'credit',
+              date: part.date,
+              status: 'confirmed',
+              installment: {
+                groupId,
+                number: part.installmentNumber,
+                total: part.totalInstallments,
+              },
+            });
+          }
+        } else {
+          dtosToCreate.push({
+            type: item.type,
+            amountCents: item.amountCents,
+            description: item.description,
+            categoryId: item.categoryId,
+            accountId: item.accountId,
+            paymentMethod: item.paymentMethod,
+            date: item.date,
+            status: 'confirmed',
+          });
+        }
+      }
+
+      const created = await transactionRepository.createMany(dtosToCreate);
+      const countCreated = parsedVoiceItems.length;
+
+      showToast({
+        message:
+          countCreated === 1
+            ? '1 lançamento criado por voz!'
+            : `${countCreated} lançamentos criados por voz!`,
+        type: 'success',
+        action: {
+          label: 'Desfazer',
+          onClick: async () => {
+            await Promise.all(created.map((rec) => transactionRepository.softDelete(rec.id)));
+            showToast({ message: 'Lançamentos desfeitos!', type: 'info' });
+          },
+        },
+      });
+
+      close();
+    } catch (err) {
+      console.error(err);
+      showToast({ message: 'Erro ao salvar lançamentos por voz', type: 'error' });
+    } finally {
+      setIsSubmitting(false);
+    }
+  }, [isSubmitting, parsedVoiceItems, stopListening, close]);
 
   const handleSave = useCallback(async () => {
     if (isSubmitting) return;
@@ -378,7 +673,7 @@ export const TransactionModal: React.FC = () => {
 
   // Support hardware keyboard numbers/Enter when no text input is active
   useEffect(() => {
-    if (!isOpen || showDeleteSheet) return;
+    if (!isOpen || showDeleteSheet || isVoiceMode) return;
     const onKeyDown = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null;
       const isFormControl =
@@ -453,9 +748,15 @@ export const TransactionModal: React.FC = () => {
         ? `Salvar nas ${effectiveSeriesCount} Parcelas`
         : `Salvar em Todos (${effectiveSeriesCount})`
       : 'Salvar Alterações'
-    : type === 'expense'
-      ? 'Salvar Gasto'
-      : 'Salvar Receita';
+    : isVoiceMode
+      ? parsedVoiceItems.length === 0
+        ? 'Confirmar por Voz'
+        : parsedVoiceItems.length === 1
+          ? 'Confirmar 1 Lançamento'
+          : `Confirmar ${parsedVoiceItems.length} Lançamentos`
+      : type === 'expense'
+        ? 'Salvar Gasto'
+        : 'Salvar Receita';
 
   return (
     <>
@@ -466,9 +767,11 @@ export const TransactionModal: React.FC = () => {
         title={
           editingTransaction
             ? 'Editar Lançamento'
-            : type === 'expense'
-              ? 'Novo Gasto'
-              : 'Nova Receita'
+            : isVoiceMode
+              ? 'Lançamento por Voz'
+              : type === 'expense'
+                ? 'Novo Gasto'
+                : 'Nova Receita'
         }
         headerAction={
           editingTransaction ? (
@@ -481,7 +784,24 @@ export const TransactionModal: React.FC = () => {
             >
               <Trash2 className="w-4 h-4" />
             </button>
-          ) : undefined
+          ) : (
+            <button
+              type="button"
+              onClick={() => {
+                if (isVoiceMode) closeVoiceMode();
+                else openVoiceMode();
+              }}
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold active:scale-95 transition-transform border ${
+                isVoiceMode
+                  ? 'bg-[var(--surface-2)] text-[var(--text-muted)] border-[var(--border)]'
+                  : 'bg-[var(--primary)]/15 text-[var(--primary-bright)] border-[var(--primary)]/35'
+              }`}
+              aria-label={isVoiceMode ? 'Voltar ao teclado' : 'Lançar por voz'}
+            >
+              <Mic className="w-3.5 h-3.5" />
+              <span>{isVoiceMode ? 'Teclado' : 'Falar'}</span>
+            </button>
+          )
         }
         footer={
           <div className="flex flex-col gap-2">
@@ -489,18 +809,176 @@ export const TransactionModal: React.FC = () => {
               variant="primary"
               size="lg"
               fullWidth
-              onClick={handleSave}
+              onClick={isVoiceMode && !editingTransaction ? handleConfirmVoiceItems : handleSave}
               isLoading={isSubmitting}
               className="text-base font-bold min-h-[48px] rounded-2xl"
             >
               <Check className="w-4 h-4 mr-1.5 stroke-[2.5]" />
               {saveLabel}
-              {amountCents > 0 ? ` · ${formatCentsToBRL(amountCents)}` : ''}
+              {isVoiceMode && !editingTransaction
+                ? voiceTotalCents > 0
+                  ? ` · ${formatCentsToBRL(voiceTotalCents)}`
+                  : ''
+                : amountCents > 0
+                  ? ` · ${formatCentsToBRL(amountCents)}`
+                  : ''}
             </Button>
           </div>
         }
       >
-        <div className="flex flex-col gap-3">
+        {isVoiceMode && !editingTransaction ? (
+          <div data-no-sheet-drag="true" className="flex flex-col gap-3">
+            {/* Live Voice Recording & Editable Transcript Card */}
+            <div className="p-3.5 rounded-2xl bg-[var(--surface-2)] border border-[var(--border)] flex flex-col gap-2.5">
+              <div className="flex items-center justify-between gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (isListening) stopListening();
+                    else startListening();
+                  }}
+                  className={`flex-1 flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl border font-semibold text-xs transition-all active:scale-[0.98] ${
+                    isListening
+                      ? 'bg-[var(--danger)]/15 border-[var(--danger)]/40 text-[var(--danger)]'
+                      : 'bg-[var(--primary)]/15 border-[var(--primary)]/35 text-[var(--primary-bright)]'
+                  }`}
+                >
+                  {isListening ? (
+                    <>
+                      <span className="w-2.5 h-2.5 rounded-full bg-[var(--danger)] animate-pulse shrink-0" />
+                      <MicOff className="w-4 h-4 shrink-0" />
+                      <span>Ouvindo... toque para pausar</span>
+                    </>
+                  ) : (
+                    <>
+                      <Mic className="w-4 h-4 shrink-0" />
+                      <span>{speechSupported ? 'Toque para falar agora' : 'Microfone não suportado — digite abaixo'}</span>
+                    </>
+                  )}
+                </button>
+
+                {fullVoiceText && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      stopListening();
+                      baseTranscriptRef.current = '';
+                      latestTranscriptRef.current = '';
+                      setVoiceTranscript('');
+                      setVoiceInterim('');
+                      setExcludedVoiceIds([]);
+                    }}
+                    className="px-3 py-2.5 rounded-xl bg-[var(--surface)] border border-[var(--border)] text-xs font-semibold text-[var(--text-muted)] hover:text-[var(--text)] active:scale-95"
+                  >
+                    Limpar
+                  </button>
+                )}
+              </div>
+
+              <textarea
+                rows={3}
+                value={fullVoiceText}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  baseTranscriptRef.current = val;
+                  latestTranscriptRef.current = val;
+                  setVoiceTranscript(val);
+                  setVoiceInterim('');
+                  setExcludedVoiceIds([]);
+                }}
+                placeholder='Fale naturalmente: "Gastei 35 de Uber no Pix e 55 e 90 da Netflix no cartão"'
+                className="w-full bg-[var(--surface)] border border-[var(--border)] text-[var(--text)] placeholder-[var(--text-muted)]/60 rounded-xl px-3 py-2.5 text-sm leading-relaxed focus:outline-none focus:border-[var(--primary)] resize-none"
+              />
+
+              <p className="text-[11px] text-[var(--text-muted)] flex items-center gap-1.5">
+                <Sparkles className="w-3.5 h-3.5 text-[var(--primary-bright)] shrink-0" />
+                <span>Pode falar vários gastos ou receitas de uma vez; eles aparecem abaixo ao vivo.</span>
+              </p>
+            </div>
+
+            {/* Live Parsed Transactions Preview */}
+            <div className="flex flex-col gap-2">
+              <div className="flex items-center justify-between px-0.5">
+                <span className="text-xs font-bold uppercase tracking-wider text-[var(--text-muted)]">
+                  Lançamentos identificados ({parsedVoiceItems.length})
+                </span>
+                {parsedVoiceItems.length > 0 && (
+                  <span className="text-xs font-bold tabular-nums text-[var(--primary-bright)]">
+                    Total {formatCentsToBRL(voiceTotalCents)}
+                  </span>
+                )}
+              </div>
+
+              {parsedVoiceItems.length === 0 ? (
+                <div className="p-5 rounded-2xl bg-[var(--surface-2)]/60 border border-dashed border-[var(--border)] text-center text-xs text-[var(--text-muted)]">
+                  Fale o que gastou ou recebeu com o valor (ex.: &ldquo;Uber 28 reais no Pix&rdquo;) para montar aqui automaticamente.
+                </div>
+              ) : (
+                <div className="flex flex-col gap-2">
+                  {parsedVoiceItems.map((item) => {
+                    const cat = allCategoryMap.get(item.categoryId);
+                    const isExpense = item.type === 'expense';
+                    return (
+                      <div
+                        key={item.id}
+                        className="flex items-center justify-between gap-2.5 p-3 rounded-2xl bg-[var(--surface-2)] border border-[var(--border)]"
+                      >
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          {item.matchedSubscription ? (
+                            <SubscriptionLogo subscription={item.matchedSubscription} size="md" />
+                          ) : (
+                            <div
+                              className="w-9 h-9 rounded-xl flex items-center justify-center text-white shrink-0"
+                              style={{ backgroundColor: cat?.color || '#3f3f46' }}
+                            >
+                              <CategoryIcon name={cat?.icon || 'Tag'} className="w-4 h-4" />
+                            </div>
+                          )}
+
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-sm font-bold text-[var(--text)] truncate">
+                                {item.description}
+                              </span>
+                              {item.installmentsCount > 1 && (
+                                <span className="px-1.5 py-0.5 rounded-md bg-[var(--primary)]/15 text-[var(--primary-bright)] text-[10px] font-bold shrink-0 tabular-nums">
+                                  {item.installmentsCount}x de {formatCentsToBRL(Math.round(item.amountCents / item.installmentsCount))}
+                                </span>
+                              )}
+                            </div>
+                            <div className="text-[11px] text-[var(--text-muted)] truncate">
+                              {item.categoryName} · {item.paymentMethod.toUpperCase()} · {item.accountName}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2 shrink-0">
+                          <span
+                            className={`text-sm font-bold tabular-nums ${
+                              isExpense ? 'text-[var(--text)]' : 'text-[var(--primary-bright)]'
+                            }`}
+                          >
+                            {isExpense ? '-' : '+'}
+                            {formatCentsToBRL(item.amountCents)}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => setExcludedVoiceIds((prev) => [...prev, item.id])}
+                            className="w-7 h-7 rounded-lg bg-[var(--surface)] text-[var(--text-muted)] hover:text-[var(--danger)] flex items-center justify-center active:scale-90"
+                            aria-label={`Remover ${item.description}`}
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+        ) : (
+          <div className="flex flex-col gap-3">
           {/* Type Toggle + Compact Amount Header */}
           <div className="flex items-center justify-between gap-3">
             <div className="flex p-1 bg-[var(--surface-2)] rounded-2xl border border-[var(--border)] shrink-0">
@@ -572,8 +1050,21 @@ export const TransactionModal: React.FC = () => {
                   }
                 }}
                 enterKeyHint="done"
-                className="w-full bg-[var(--surface-2)] border border-[var(--border)] text-[var(--text)] placeholder-[var(--text-muted)]/70 rounded-xl pl-8 pr-3 py-2 focus:outline-none focus:border-[var(--primary)] min-h-[42px]"
+                className={`w-full bg-[var(--surface-2)] border border-[var(--border)] text-[var(--text)] placeholder-[var(--text-muted)]/70 rounded-xl pl-8 py-2 focus:outline-none focus:border-[var(--primary)] min-h-[42px] ${
+                  !editingTransaction ? 'pr-9' : 'pr-3'
+                }`}
               />
+              {!editingTransaction && (
+                <button
+                  type="button"
+                  onClick={openVoiceMode}
+                  className="absolute right-1.5 w-7 h-7 rounded-lg bg-[var(--primary)]/12 text-[var(--primary-bright)] hover:bg-[var(--primary)]/20 flex items-center justify-center active:scale-90 transition-transform"
+                  aria-label="Falar lançamento por voz"
+                  title="Falar lançamento por voz"
+                >
+                  <Mic className="w-3.5 h-3.5" />
+                </button>
+              )}
             </div>
 
             <button
@@ -858,9 +1349,10 @@ export const TransactionModal: React.FC = () => {
             </div>
           )}
 
-          {/* Compact Numeric Keypad */}
-          <NumericKeypad compact onKeyPress={handleKeyPress} />
-        </div>
+              {/* Compact Numeric Keypad */}
+              <NumericKeypad compact onKeyPress={handleKeyPress} />
+            </div>
+        )}
       </Sheet>
 
       {/* Native iOS-style Delete Confirmation Sheet */}

@@ -10,7 +10,7 @@ export default defineConfig({
     tailwindcss(),
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['apple-touch-icon.png', 'icons/*.png', 'icons/*.svg', 'splash/*.png'],
+      includeAssets: ['apple-touch-icon.png', 'icons/*.png', 'icons/*.svg', 'splash/*.png', 'patch-notes/*.jpg'],
       manifest: {
         id: '/',
         name: 'Fechô - Controle de Gastos',
@@ -64,7 +64,7 @@ export default defineConfig({
         skipWaiting: true,
         clientsClaim: true,
         cleanupOutdatedCaches: true,
-        globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
+        globPatterns: ['**/*.{js,css,html,ico,png,jpg,svg,woff2}'],
         runtimeCaching: [
           {
             urlPattern: ({ request }) => request.destination === 'image',

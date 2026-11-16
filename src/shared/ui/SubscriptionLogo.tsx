@@ -20,7 +20,9 @@ function renderSubscriptionGlyph(sub: SubscriptionPreset): React.ReactNode {
     case 'netflix':
       return (
         <svg viewBox="0 0 32 32" className="w-full h-full" aria-hidden="true">
-          <path d="M9.5 25V7h3.2l6.6 18V7h3.2v18h-3.1L12.7 7.1V25H9.5z" fill="#E50914" />
+          <path d="M9 25V7h3.5v18H9z" fill="#B20710" />
+          <path d="M19.5 25V7H23v18h-3.5z" fill="#B20710" />
+          <path d="M9 7h3.5L23 25h-3.5L9 7z" fill="#E50914" />
         </svg>
       );
 

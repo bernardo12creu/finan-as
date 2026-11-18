@@ -74,11 +74,22 @@ function isEducationCat(cat: { id: string; name: string } | undefined): boolean 
   );
 }
 
+function isHousingCat(cat: { id: string; name: string } | undefined): boolean {
+  if (!cat) return false;
+  return (
+    cat.id.endsWith('cat_moradia') ||
+    normalizeCategoryName(cat.name).includes('morad')
+  );
+}
+
 function canCategoryBeRecurring(
   txType: TransactionType,
   cat: { id: string; name: string } | undefined
 ): boolean {
-  return txType === 'expense' && (isSubscriptionCat(cat) || isEducationCat(cat));
+  return (
+    txType === 'expense' &&
+    (isSubscriptionCat(cat) || isEducationCat(cat) || isHousingCat(cat))
+  );
 }
 
 interface SpeechRecognitionAlternativeLike {
@@ -1582,7 +1593,7 @@ export const TransactionModal: React.FC = () => {
             </div>
           )}
 
-          {/* Billing Frequency: Conta Recorrente (only Assinaturas / Educação) & Parcelamento (1x-24x on Credit) */}
+          {/* Billing Frequency: Conta Recorrente (only Assinaturas / Educação / Moradia) & Parcelamento (1x-24x on Credit) */}
           {!editingTransaction &&
             (canBeRecurringCategory || (paymentMethod === 'credit' && type === 'expense')) && (
               <div

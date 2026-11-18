@@ -13,10 +13,11 @@ import {
   Repeat,
   Trash2,
   Calendar,
+  Wallet,
 } from 'lucide-react';
 import { SubscriptionLogo } from '@/shared/ui/SubscriptionLogo';
 import { BankLogo } from '@/shared/ui/BankLogo';
-import { POPULAR_SUBSCRIPTIONS } from '@/shared/lib/subscriptions';
+import { POPULAR_SUBSCRIPTIONS, SubscriptionPreset } from '@/shared/lib/subscriptions';
 import { BRAZILIAN_BANKS } from '@/shared/lib/banks';
 import { PATCH_NOTES_MAX_DAYS, usePatchNotesModalStore } from '@/shared/lib/patchNotes';
 
@@ -32,7 +33,7 @@ interface PatchNoteSlide {
   overlay: React.ReactNode;
 }
 
-const PREVIEW_SUBSCRIPTION_IDS = ['netflix', 'spotify', 'hbomax', 'primevideo'] as const;
+const PREVIEW_SUBSCRIPTION_IDS = ['gemini', 'netflix', 'spotify', 'hbomax'] as const;
 
 const PREVIEW_BANK_IDS = ['nubank', 'itau', 'inter', 'sicredi'] as const;
 
@@ -55,28 +56,47 @@ export const PatchNotesModal: React.FC = () => {
     deltaX: 0,
   });
 
-  const previewSubscriptions = POPULAR_SUBSCRIPTIONS.filter((sub) =>
-    (PREVIEW_SUBSCRIPTION_IDS as readonly string[]).includes(sub.id)
-  );
+  const previewSubscriptions = PREVIEW_SUBSCRIPTION_IDS.map((id) =>
+    POPULAR_SUBSCRIPTIONS.find((sub) => sub.id === id)
+  ).filter((sub): sub is SubscriptionPreset => Boolean(sub));
   const previewBanks = BRAZILIAN_BANKS.filter((bank) =>
     (PREVIEW_BANK_IDS as readonly string[]).includes(bank.id)
   );
+  const sicrediBank = BRAZILIAN_BANKS.find((bank) => bank.id === 'sicredi');
 
   const slides: PatchNoteSlide[] = [
     {
+      id: 'card-limit',
+      tag: 'Novo',
+      title: 'Limite do Cartão e Débito vs Crédito',
+      description:
+        'Defina o limite do cartão e veja quanto resta disponível. No Sicredi Gold, escolha Débito (sai do saldo sem usar o limite) ou Crédito (consome o limite sem descontar do saldo).',
+      imageSrc: '/patch-notes/slide-card-limit.jpg',
+      imageAlt: 'Ilustração do limite do cartão e separação entre débito e crédito',
+      accentClass: 'bg-[var(--primary)]/20 border-[var(--primary)]/40 text-[var(--primary-bright)]',
+      icon: CreditCard,
+      overlay: (
+        <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-black/75 backdrop-blur-md border border-[var(--primary)]/35 text-[11px] font-semibold text-white shadow-lg max-w-full">
+          {sicrediBank && <BankLogo bank={sicrediBank} size="xs" />}
+          <Wallet className="w-3.5 h-3.5 text-[var(--primary-bright)] shrink-0" />
+          <span className="truncate">Débito → Saldo · Crédito → Limite do Cartão</span>
+        </div>
+      ),
+    },
+    {
       id: 'recurring',
       tag: 'Novo',
-      title: 'Conta Recorrente Mensal',
+      title: 'Conta Recorrente + Assinatura Gemini',
       description:
-        'Assinaturas como Netflix e Spotify agora entram como Conta Recorrente (todo mês), sem cair em 1x ou 2x — e se alguma for parcelada, basta alternar para 1x–24x com 1 toque.',
+        'Agora disponível em Assinaturas, Educação e Moradia para gastos fixos mensais (com opção de alternar para 1x–24x). Inclui também a assinatura do Google Gemini com logo oficial.',
       imageSrc: '/patch-notes/slide-recurring.jpg',
-      imageAlt: 'Ilustração de conta recorrente mensal para assinaturas',
+      imageAlt: 'Ilustração de conta recorrente mensal para assinaturas, educação e moradia',
       accentClass: 'bg-[var(--primary)]/20 border-[var(--primary)]/40 text-[var(--primary-bright)]',
       icon: Repeat,
       overlay: (
         <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-black/75 backdrop-blur-md border border-[var(--primary)]/35 text-[11px] font-semibold text-white shadow-lg max-w-full">
           <Repeat className="w-3.5 h-3.5 text-[var(--primary-bright)] shrink-0" />
-          <span className="truncate">Cobrado todo mês automaticamente</span>
+          <span className="truncate">Assinaturas, Educação e Moradia</span>
           <div className="flex items-center gap-1 shrink-0 pl-0.5">
             {previewSubscriptions.slice(0, 3).map((sub) => (
               <SubscriptionLogo key={sub.id} subscription={sub} size="xs" />
@@ -141,7 +161,7 @@ export const PatchNotesModal: React.FC = () => {
       tag: 'Novo',
       title: 'Assinaturas e 15 Bancos com Logos',
       description:
-        'Selecione 16 assinaturas populares e 15 bancos brasileiros com logos oficiais, cálculo automático de fatura e exclusão de contas com desfazer.',
+        'Selecione 17 assinaturas populares (incluindo Gemini) e 15 bancos brasileiros com logos oficiais, cálculo automático de fatura e exclusão de contas com desfazer.',
       imageSrc: '/patch-notes/slide-logos.jpg',
       imageAlt: 'Ilustração das assinaturas e bancos com logos',
       accentClass: 'bg-sky-500/20 border-sky-400/40 text-sky-300',

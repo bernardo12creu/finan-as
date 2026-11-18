@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 
-export const PATCH_NOTES_VERSION = '2026-11-v19';
+export const PATCH_NOTES_VERSION = '2026-11-v22';
 export const PATCH_NOTES_STORAGE_KEY = 'fecho_patch_notes_state_v1';
 export const PATCH_NOTES_MAX_DAYS = 3;
 

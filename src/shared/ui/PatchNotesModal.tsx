@@ -4,13 +4,15 @@ import {
   Sparkles,
   Mic,
   Layers,
-  Tv,
   CreditCard,
   Zap,
   X,
   ChevronRight,
   ChevronLeft,
   Check,
+  Repeat,
+  Trash2,
+  Calendar,
 } from 'lucide-react';
 import { SubscriptionLogo } from '@/shared/ui/SubscriptionLogo';
 import { BankLogo } from '@/shared/ui/BankLogo';
@@ -30,24 +32,9 @@ interface PatchNoteSlide {
   overlay: React.ReactNode;
 }
 
-const PREVIEW_SUBSCRIPTION_IDS = [
-  'netflix',
-  'spotify',
-  'hbomax',
-  'primevideo',
-  'disneyplus',
-  'youtube',
-] as const;
+const PREVIEW_SUBSCRIPTION_IDS = ['netflix', 'spotify', 'hbomax', 'primevideo'] as const;
 
-const PREVIEW_BANK_IDS = [
-  'nubank',
-  'itau',
-  'inter',
-  'bradesco',
-  'santander',
-  'bb',
-  'sicredi',
-] as const;
+const PREVIEW_BANK_IDS = ['nubank', 'itau', 'inter', 'sicredi'] as const;
 
 export const PatchNotesModal: React.FC = () => {
   const { isOpen, shownDayNumber, close } = usePatchNotesModalStore();
@@ -76,6 +63,45 @@ export const PatchNotesModal: React.FC = () => {
   );
 
   const slides: PatchNoteSlide[] = [
+    {
+      id: 'recurring',
+      tag: 'Novo',
+      title: 'Conta Recorrente Mensal',
+      description:
+        'Assinaturas como Netflix e Spotify agora entram como Conta Recorrente (todo mês), sem cair em 1x ou 2x — e se alguma for parcelada, basta alternar para 1x–24x com 1 toque.',
+      imageSrc: '/patch-notes/slide-recurring.jpg',
+      imageAlt: 'Ilustração de conta recorrente mensal para assinaturas',
+      accentClass: 'bg-[var(--primary)]/20 border-[var(--primary)]/40 text-[var(--primary-bright)]',
+      icon: Repeat,
+      overlay: (
+        <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-black/75 backdrop-blur-md border border-[var(--primary)]/35 text-[11px] font-semibold text-white shadow-lg max-w-full">
+          <Repeat className="w-3.5 h-3.5 text-[var(--primary-bright)] shrink-0" />
+          <span className="truncate">Cobrado todo mês automaticamente</span>
+          <div className="flex items-center gap-1 shrink-0 pl-0.5">
+            {previewSubscriptions.slice(0, 3).map((sub) => (
+              <SubscriptionLogo key={sub.id} subscription={sub} size="xs" />
+            ))}
+          </div>
+        </div>
+      ),
+    },
+    {
+      id: 'clear-scope',
+      tag: 'Novo',
+      title: 'Apagar Lançamentos por Mês ou Ano',
+      description:
+        'Em Ajustes → Apagar Todos os Lançamentos, escolha se deseja limpar apenas um Mês específico, um Ano inteiro ou Tudo, sincronizado na nuvem e restrito somente à sua conta.',
+      imageSrc: '/patch-notes/slide-clear-scope.jpg',
+      imageAlt: 'Ilustração da limpeza seletiva por mês ou ano',
+      accentClass: 'bg-rose-500/20 border-rose-400/40 text-rose-300',
+      icon: Calendar,
+      overlay: (
+        <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-black/75 backdrop-blur-md border border-rose-400/35 text-[11px] font-semibold text-white shadow-lg max-w-full">
+          <Trash2 className="w-3.5 h-3.5 text-rose-300 shrink-0" />
+          <span className="truncate">Apagar do Mês · Apagar do Ano · Só da sua conta</span>
+        </div>
+      ),
+    },
     {
       id: 'voice',
       tag: 'Novo',
@@ -111,36 +137,22 @@ export const PatchNotesModal: React.FC = () => {
       ),
     },
     {
-      id: 'subscriptions',
+      id: 'logos',
       tag: 'Novo',
-      title: 'Assinaturas Populares com Logos',
+      title: 'Assinaturas e 15 Bancos com Logos',
       description:
-        'Ao selecionar Assinaturas em um novo gasto, escolha entre 16 serviços populares com preenchimento em 1 toque e logo oficial na sua lista.',
+        'Selecione 16 assinaturas populares e 15 bancos brasileiros com logos oficiais, cálculo automático de fatura e exclusão de contas com desfazer.',
       imageSrc: '/patch-notes/slide-logos.jpg',
-      imageAlt: 'Ilustração das assinaturas populares com logos',
-      accentClass: 'bg-orange-500/20 border-orange-400/40 text-orange-300',
-      icon: Tv,
-      overlay: (
-        <div className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-2xl bg-black/70 backdrop-blur-md border border-white/15 shadow-lg">
-          {previewSubscriptions.map((sub) => (
-            <SubscriptionLogo key={sub.id} subscription={sub} size="sm" />
-          ))}
-        </div>
-      ),
-    },
-    {
-      id: 'banks',
-      tag: 'Novo',
-      title: '15 Bancos em Contas e Cartões',
-      description:
-        'Cadastre cartões e contas escolhendo seu banco com a logo oficial, cálculo automático da fatura do mês e opção de excluir com desfazer.',
-      imageSrc: '/patch-notes/slide-logos.jpg',
-      imageAlt: 'Ilustração dos bancos pré-definidos',
+      imageAlt: 'Ilustração das assinaturas e bancos com logos',
       accentClass: 'bg-sky-500/20 border-sky-400/40 text-sky-300',
       icon: CreditCard,
       overlay: (
         <div className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-2xl bg-black/70 backdrop-blur-md border border-white/15 shadow-lg">
-          {previewBanks.map((bank) => (
+          {previewSubscriptions.slice(0, 3).map((sub) => (
+            <SubscriptionLogo key={sub.id} subscription={sub} size="sm" />
+          ))}
+          <span className="w-px h-5 bg-white/20 mx-0.5 shrink-0" />
+          {previewBanks.slice(0, 3).map((bank) => (
             <BankLogo key={bank.id} bank={bank} size="sm" />
           ))}
         </div>

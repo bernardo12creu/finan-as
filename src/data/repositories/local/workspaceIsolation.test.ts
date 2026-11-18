@@ -1,6 +1,10 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { AppDatabase } from '@/data/db';
-import { LocalTransactionRepository, LocalCategoryRepository } from './localRepository';
+import {
+  LocalTransactionRepository,
+  LocalCategoryRepository,
+  LocalRecurringRepository,
+} from './localRepository';
 import { useSessionStore } from '@/data/session';
 import { generateInstallmentPlan } from '@/shared/lib/installments';
 import { mergeByUpdatedAt } from '@/data/supabaseSync';
@@ -9,12 +13,14 @@ describe('multi-workspace data isolation', () => {
   let testDb: AppDatabase;
   let txRepo: LocalTransactionRepository;
   let catRepo: LocalCategoryRepository;
+  let recRepo: LocalRecurringRepository;
 
   beforeEach(async () => {
     // Unique db name for test isolation
     testDb = new AppDatabase(`test_iso_${Math.random()}`);
     txRepo = new LocalTransactionRepository(testDb);
     catRepo = new LocalCategoryRepository(testDb);
+    recRepo = new LocalRecurringRepository(testDb);
 
     // Setup 2 distinct workspaces and users
     await testDb.workspaces.bulkAdd([
@@ -179,5 +185,55 @@ describe('multi-workspace data isolation', () => {
     expect(toPushRemotely.map((i) => i.id)).toEqual(['1', '3']);
     expect(toPushRemotely.find((i) => i.id === '1')?.name).toBe('Newer Local Card');
     expect(toPushRemotely.find((i) => i.id === '3')?.name).toBe('Offline Local Only');
+  });
+
+  it('creates a monthly recurring Netflix subscription and stops + soft-deletes all linked items via softDeleteByRecurringRule', async () => {
+    useSessionStore.getState().setSession('usr_alpha', 'ws_alpha');
+
+    const rule = await recRepo.create({
+      templateTransaction: {
+        description: 'Netflix',
+        amountCents: 5590,
+        type: 'expense',
+        categoryId: 'ws_alpha__cat_assinaturas',
+        accountId: 'acc_credit',
+        paymentMethod: 'credit',
+        tags: ['recorrente'],
+        visibility: 'shared',
+        paidBy: 'usr_alpha',
+      },
+      dayOfMonth: 18,
+      startCompetence: '2026-11',
+      active: true,
+    });
+
+    await txRepo.create({
+      type: 'expense',
+      amountCents: 5590,
+      description: 'Netflix',
+      categoryId: 'ws_alpha__cat_assinaturas',
+      accountId: 'acc_credit',
+      paymentMethod: 'credit',
+      date: '2026-11-18',
+      status: 'confirmed',
+      recurringRuleId: rule.id,
+      tags: ['recorrente'],
+    });
+
+    // Simulate entering the next month so recurringRepository auto-creates 2026-12 planned entry
+    const generated = await recRepo.ensurePlannedForCompetence('2026-12');
+    expect(generated).toBe(1);
+
+    const beforeDelete = await txRepo.list();
+    expect(beforeDelete).toHaveLength(2);
+    expect(beforeDelete.every((t) => t.recurringRuleId === rule.id)).toBe(true);
+
+    await txRepo.softDeleteByRecurringRule(rule.id);
+
+    const afterDeleteTxs = await txRepo.list();
+    expect(afterDeleteTxs).toHaveLength(0);
+
+    const activeRules = await recRepo.listActive();
+    expect(activeRules).toHaveLength(0);
   });
 });

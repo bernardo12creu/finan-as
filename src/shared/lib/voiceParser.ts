@@ -15,6 +15,7 @@ export interface ParsedVoiceTransaction {
   paymentMethod: PaymentMethod;
   date: string;
   installmentsCount: number;
+  isRecurring: boolean;
   matchedSubscription?: SubscriptionPreset;
 }
 
@@ -604,6 +605,13 @@ export function parseVoiceTransactions(
       matchedSubscription
     );
 
+    const effectiveInstallmentsCount =
+      type === 'expense' && paymentMethod === 'credit' ? installmentsCount : 1;
+    const isRecurring =
+      effectiveInstallmentsCount === 1 &&
+      (Boolean(matchedSubscription) ||
+        /\b(recorrente|todo\s+mes|mensal|por\s+mes|assinatura|assinei)\b/.test(norm));
+
     results.push({
       id: `voice_${idx}_${description}_${amountCents}`,
       rawSegment: clause,
@@ -616,7 +624,8 @@ export function parseVoiceTransactions(
       accountName: account?.name || 'Conta',
       paymentMethod,
       date: context.defaultDate,
-      installmentsCount: type === 'expense' && paymentMethod === 'credit' ? installmentsCount : 1,
+      installmentsCount: effectiveInstallmentsCount,
+      isRecurring,
       matchedSubscription,
     });
   });

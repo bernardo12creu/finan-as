@@ -117,7 +117,7 @@ export const TransactionsList: React.FC = () => {
   };
 
   const handleDelete = async (tx: Transaction) => {
-    if (tx.installment) {
+    if (tx.installment || tx.recurringRuleId) {
       setPendingDeleteInstallmentTx(tx);
       return;
     }
@@ -331,67 +331,110 @@ export const TransactionsList: React.FC = () => {
         </div>
       )}
 
-      {/* Native iOS-style Installment Delete Sheet */}
+      {/* Native iOS-style Installment / Recurring Delete Sheet */}
       <Sheet
         isOpen={Boolean(pendingDeleteInstallmentTx)}
         onClose={() => setPendingDeleteInstallmentTx(null)}
         title={
           pendingDeleteInstallmentTx?.installment
             ? `Parcela ${pendingDeleteInstallmentTx.installment.number}/${pendingDeleteInstallmentTx.installment.total}`
-            : 'Excluir parcelamento'
+            : pendingDeleteInstallmentTx?.recurringRuleId
+              ? 'Conta recorrente'
+              : 'Excluir parcelamento'
         }
       >
         <div className="flex flex-col gap-3">
           <p className="text-sm text-[var(--text-muted)]">
-            Deseja excluir também as próximas parcelas desta compra?
+            {pendingDeleteInstallmentTx?.installment
+              ? 'Deseja excluir também as próximas parcelas desta compra?'
+              : 'Esta é uma conta recorrente mensal. Deseja encerrar a recorrência ou excluir só este mês?'}
           </p>
 
-          <Button
-            variant="danger"
-            size="lg"
-            fullWidth
-            onClick={async () => {
-              if (!pendingDeleteInstallmentTx?.installment) return;
-              await transactionRepository.softDeleteGroup(
-                pendingDeleteInstallmentTx.installment.groupId
-              );
-              setPendingDeleteInstallmentTx(null);
-              showToast({ message: 'Todas as parcelas excluídas!', type: 'info' });
-            }}
-          >
-            Excluir todas as parcelas (inclusive concluídas)
-          </Button>
+          {pendingDeleteInstallmentTx?.installment ? (
+            <>
+              <Button
+                variant="danger"
+                size="lg"
+                fullWidth
+                onClick={async () => {
+                  if (!pendingDeleteInstallmentTx?.installment) return;
+                  await transactionRepository.softDeleteGroup(
+                    pendingDeleteInstallmentTx.installment.groupId
+                  );
+                  setPendingDeleteInstallmentTx(null);
+                  showToast({ message: 'Todas as parcelas excluídas!', type: 'info' });
+                }}
+              >
+                Excluir todas as parcelas (inclusive concluídas)
+              </Button>
 
-          <Button
-            variant="secondary"
-            size="lg"
-            fullWidth
-            onClick={async () => {
-              if (!pendingDeleteInstallmentTx?.installment) return;
-              await transactionRepository.softDeleteGroup(
-                pendingDeleteInstallmentTx.installment.groupId,
-                pendingDeleteInstallmentTx.installment.number
-              );
-              setPendingDeleteInstallmentTx(null);
-              showToast({ message: 'Parcelas excluídas!', type: 'info' });
-            }}
-          >
-            Excluir esta e as próximas
-          </Button>
+              <Button
+                variant="secondary"
+                size="lg"
+                fullWidth
+                onClick={async () => {
+                  if (!pendingDeleteInstallmentTx?.installment) return;
+                  await transactionRepository.softDeleteGroup(
+                    pendingDeleteInstallmentTx.installment.groupId,
+                    pendingDeleteInstallmentTx.installment.number
+                  );
+                  setPendingDeleteInstallmentTx(null);
+                  showToast({ message: 'Parcelas excluídas!', type: 'info' });
+                }}
+              >
+                Excluir esta e as próximas
+              </Button>
 
-          <Button
-            variant="secondary"
-            size="lg"
-            fullWidth
-            onClick={async () => {
-              if (!pendingDeleteInstallmentTx) return;
-              const target = pendingDeleteInstallmentTx;
-              setPendingDeleteInstallmentTx(null);
-              await executeSingleDelete(target);
-            }}
-          >
-            Excluir apenas esta
-          </Button>
+              <Button
+                variant="secondary"
+                size="lg"
+                fullWidth
+                onClick={async () => {
+                  if (!pendingDeleteInstallmentTx) return;
+                  const target = pendingDeleteInstallmentTx;
+                  setPendingDeleteInstallmentTx(null);
+                  await executeSingleDelete(target);
+                }}
+              >
+                Excluir apenas esta
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button
+                variant="danger"
+                size="lg"
+                fullWidth
+                onClick={async () => {
+                  if (!pendingDeleteInstallmentTx?.recurringRuleId) return;
+                  await transactionRepository.softDeleteByRecurringRule(
+                    pendingDeleteInstallmentTx.recurringRuleId
+                  );
+                  setPendingDeleteInstallmentTx(null);
+                  showToast({
+                    message: 'Conta recorrente encerrada e lançamentos excluídos!',
+                    type: 'info',
+                  });
+                }}
+              >
+                Encerrar conta recorrente e excluir lançamentos
+              </Button>
+
+              <Button
+                variant="secondary"
+                size="lg"
+                fullWidth
+                onClick={async () => {
+                  if (!pendingDeleteInstallmentTx) return;
+                  const target = pendingDeleteInstallmentTx;
+                  setPendingDeleteInstallmentTx(null);
+                  await executeSingleDelete(target);
+                }}
+              >
+                Excluir apenas este mês
+              </Button>
+            </>
+          )}
 
           <Button
             variant="ghost"

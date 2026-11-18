@@ -5,7 +5,7 @@ import { formatFriendlyDate } from '@/shared/lib/dates';
 import { CategoryIcon } from '@/shared/ui/CategoryIcon';
 import { SubscriptionLogo } from '@/shared/ui/SubscriptionLogo';
 import { matchSubscriptionByName } from '@/shared/lib/subscriptions';
-import { CalendarClock, CreditCard, Trash2 } from 'lucide-react';
+import { CalendarClock, CreditCard, Trash2, Repeat } from 'lucide-react';
 
 export interface TransactionItemProps {
   transaction: Transaction;
@@ -271,6 +271,16 @@ export const TransactionItem: React.FC<TransactionItemProps> = React.memo(
                     </span>
                   </>
                 )}
+                {!transaction.installment &&
+                  (transaction.recurringRuleId || transaction.tags?.includes('recorrente')) && (
+                    <>
+                      <span>•</span>
+                      <span className="inline-flex items-center gap-0.5 text-[11px] text-[var(--primary-bright)] font-medium">
+                        <Repeat className="w-3 h-3" />
+                        Recorrente
+                      </span>
+                    </>
+                  )}
               </div>
             </div>
           </div>

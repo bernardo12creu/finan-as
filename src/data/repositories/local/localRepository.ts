@@ -428,6 +428,39 @@ export class LocalTransactionRepository implements ITransactionRepository {
     }
   }
 
+  async softDeleteByRecurringRule(recurringRuleId: string): Promise<void> {
+    const { workspaceId } = this.getSessionContext();
+    const now = new Date().toISOString();
+
+    const matchingTransactions = await this.database.transactions
+      .where('workspaceId')
+      .equals(workspaceId)
+      .filter((t) => !t.deletedAt && t.recurringRuleId === recurringRuleId)
+      .toArray();
+
+    if (matchingTransactions.length > 0) {
+      const deletedTxs = matchingTransactions.map((t) => ({
+        ...t,
+        deletedAt: now,
+        updatedAt: now,
+      }));
+      await this.database.transactions.bulkPut(deletedTxs);
+      syncTransactionToSupabase(deletedTxs);
+    }
+
+    const rule = await this.database.recurringRules.get(recurringRuleId);
+    if (rule && rule.workspaceId === workspaceId && !rule.deletedAt) {
+      const updatedRule: RecurringRule = {
+        ...rule,
+        active: false,
+        deletedAt: now,
+        updatedAt: now,
+      };
+      await this.database.recurringRules.put(updatedRule);
+      syncRecurringRuleToSupabase(updatedRule);
+    }
+  }
+
   async restore(id: string): Promise<void> {
     const { workspaceId } = this.getSessionContext();
     const tx = await this.database.transactions.get(id);

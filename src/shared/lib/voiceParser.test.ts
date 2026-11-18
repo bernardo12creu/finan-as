@@ -110,6 +110,7 @@ describe('Portuguese voice transaction parser', () => {
       paymentMethod: 'pix',
       categoryId: 'ws__cat_transporte',
       installmentsCount: 1,
+      isRecurring: false,
     });
   });
 
@@ -123,6 +124,7 @@ describe('Portuguese voice transaction parser', () => {
       type: 'expense',
       amountCents: 120000,
       installmentsCount: 10,
+      isRecurring: false,
       paymentMethod: 'credit',
       categoryId: 'ws__cat_compras',
       accountId: 'acc_nubank',
@@ -140,6 +142,7 @@ describe('Portuguese voice transaction parser', () => {
       paymentMethod: 'credit',
       categoryId: 'ws__cat_assinaturas',
       accountId: 'acc_nubank',
+      isRecurring: true,
     });
     expect(res[0].matchedSubscription?.id).toBe('netflix');
   });

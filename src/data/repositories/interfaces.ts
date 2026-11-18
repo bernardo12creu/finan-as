@@ -67,6 +67,7 @@ export interface ITransactionRepository {
   updateSeries(anchorId: string, params: UpdateSeriesParams): Promise<number>;
   softDelete(id: string): Promise<void>;
   softDeleteGroup(groupId: string, fromInstallmentNumber?: number): Promise<void>;
+  softDeleteByRecurringRule(recurringRuleId: string): Promise<void>;
   restore(id: string): Promise<void>;
   getUpcomingPlanned(daysAhead: number): Promise<Transaction[]>;
 }

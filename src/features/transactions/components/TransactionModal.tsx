@@ -21,7 +21,12 @@ import {
 } from '@/shared/lib/installments';
 import { parseVoiceTransactions } from '@/shared/lib/voiceParser';
 import { useCategories, useAccounts } from '@/data/hooks';
-import { transactionRepository, settingsRepository } from '@/data/repositories/local/localRepository';
+import {
+  transactionRepository,
+  recurringRepository,
+  settingsRepository,
+} from '@/data/repositories/local/localRepository';
+import { useSessionStore } from '@/data/session';
 import { useTransactionModalStore } from '../transactionModalStore';
 import { showToast } from '@/shared/ui/toastStore';
 import { CreateTransactionDTO } from '@/data/repositories/interfaces';
@@ -42,6 +47,7 @@ import {
   MicOff,
   Sparkles,
   X,
+  Repeat,
 } from 'lucide-react';
 
 interface SpeechRecognitionAlternativeLike {
@@ -133,6 +139,7 @@ export const TransactionModal: React.FC = () => {
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>(() => getCachedPaymentMethod());
   const [date, setDate] = useState<string>(getTodayDateString());
   const [installmentsCount, setInstallmentsCount] = useState<number>(1);
+  const [isRecurring, setIsRecurring] = useState<boolean>(false);
   const [showDatePicker, setShowDatePicker] = useState<boolean>(false);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [showDeleteSheet, setShowDeleteSheet] = useState<boolean>(false);
@@ -290,6 +297,7 @@ export const TransactionModal: React.FC = () => {
         setPaymentMethod(editingTransaction.paymentMethod);
         setDate(editingTransaction.date);
         setInstallmentsCount(editingTransaction.installment?.total || 1);
+        setIsRecurring(Boolean(editingTransaction.recurringRuleId));
         setSeriesSiblingsCount(editingTransaction.installment?.total || 1);
       } else {
         setType(defaultType);
@@ -301,6 +309,7 @@ export const TransactionModal: React.FC = () => {
         }
         setDate(getTodayDateString());
         setInstallmentsCount(1);
+        setIsRecurring(false);
         setSeriesSiblingsCount(1);
         setPaymentMethod(getCachedPaymentMethod());
       }
@@ -434,6 +443,8 @@ export const TransactionModal: React.FC = () => {
     setIsSubmitting(true);
     try {
       const dtosToCreate: CreateTransactionDTO[] = [];
+      const createdRuleIds: string[] = [];
+      const currentUserId = useSessionStore.getState().currentUserId || 'default';
 
       for (const item of parsedVoiceItems) {
         if (item.type === 'expense' && item.paymentMethod === 'credit' && item.installmentsCount > 1) {
@@ -464,6 +475,39 @@ export const TransactionModal: React.FC = () => {
               },
             });
           }
+        } else if (item.isRecurring) {
+          const dayOfMonth = Number(item.date.split('-')[2]) || 1;
+          const startCompetence = item.date.substring(0, 7);
+          const rule = await recurringRepository.create({
+            templateTransaction: {
+              description: item.description,
+              amountCents: item.amountCents,
+              type: item.type,
+              categoryId: item.categoryId,
+              accountId: item.accountId,
+              paymentMethod: item.paymentMethod,
+              tags: ['recorrente'],
+              visibility: 'shared',
+              paidBy: currentUserId,
+            },
+            dayOfMonth,
+            startCompetence,
+            active: true,
+          });
+          createdRuleIds.push(rule.id);
+
+          dtosToCreate.push({
+            type: item.type,
+            amountCents: item.amountCents,
+            description: item.description,
+            categoryId: item.categoryId,
+            accountId: item.accountId,
+            paymentMethod: item.paymentMethod,
+            date: item.date,
+            status: 'confirmed',
+            recurringRuleId: rule.id,
+            tags: ['recorrente'],
+          });
         } else {
           dtosToCreate.push({
             type: item.type,
@@ -490,7 +534,10 @@ export const TransactionModal: React.FC = () => {
         action: {
           label: 'Desfazer',
           onClick: async () => {
-            await Promise.all(created.map((rec) => transactionRepository.softDelete(rec.id)));
+            await Promise.all([
+              ...created.map((rec) => transactionRepository.softDelete(rec.id)),
+              ...createdRuleIds.map((rId) => transactionRepository.softDeleteByRecurringRule(rId)),
+            ]);
             showToast({ message: 'Lançamentos desfeitos!', type: 'info' });
           },
         },
@@ -565,7 +612,60 @@ export const TransactionModal: React.FC = () => {
           });
         }
       } else {
-        if (type === 'expense' && paymentMethod === 'credit' && installmentsCount > 1) {
+        if (isRecurring) {
+          const dayOfMonth = Number(date.split('-')[2]) || 1;
+          const startCompetence = date.substring(0, 7);
+          const currentUserId = useSessionStore.getState().currentUserId || 'default';
+
+          const rule = await recurringRepository.create({
+            templateTransaction: {
+              description: finalDescription,
+              amountCents,
+              type,
+              categoryId,
+              accountId: finalAccountId,
+              paymentMethod,
+              tags: ['recorrente'],
+              visibility: 'shared',
+              paidBy: currentUserId,
+            },
+            dayOfMonth,
+            startCompetence,
+            active: true,
+          });
+
+          await transactionRepository.create({
+            type,
+            amountCents,
+            description: finalDescription,
+            categoryId,
+            accountId: finalAccountId,
+            paymentMethod,
+            date,
+            status: 'confirmed',
+            recurringRuleId: rule.id,
+            tags: ['recorrente'],
+          });
+
+          try {
+            localStorage.setItem(LAST_PAYMENT_KEY, paymentMethod);
+          } catch {
+            // ignore
+          }
+          await settingsRepository.updatePreferences({ lastPaymentMethod: paymentMethod });
+
+          showToast({
+            message: `Conta recorrente "${finalDescription}" (${formatCentsToBRL(amountCents)}/mês) salva!`,
+            type: 'success',
+            action: {
+              label: 'Desfazer',
+              onClick: async () => {
+                await transactionRepository.softDeleteByRecurringRule(rule.id);
+                showToast({ message: 'Conta recorrente desfeita!', type: 'info' });
+              },
+            },
+          });
+        } else if (type === 'expense' && paymentMethod === 'credit' && installmentsCount > 1) {
           const groupId = 'group_' + Math.random().toString(36).substring(2, 10);
           const competence = date.substring(0, 7);
           const plan = generateInstallmentPlan({
@@ -668,6 +768,7 @@ export const TransactionModal: React.FC = () => {
     paymentMethod,
     date,
     installmentsCount,
+    isRecurring,
     close,
   ]);
 
@@ -696,7 +797,7 @@ export const TransactionModal: React.FC = () => {
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [isOpen, showDeleteSheet, handleKeyPress, handleSave]);
+  }, [isOpen, showDeleteSheet, isVoiceMode, handleKeyPress, handleSave]);
 
   const handleDeleteSingle = async () => {
     if (!editingTransaction) return;
@@ -738,6 +839,17 @@ export const TransactionModal: React.FC = () => {
     close();
     showToast({
       message: 'Todas as parcelas excluídas!',
+      type: 'info',
+    });
+  };
+
+  const handleDeleteRecurring = async () => {
+    if (!editingTransaction?.recurringRuleId) return;
+    await transactionRepository.softDeleteByRecurringRule(editingTransaction.recurringRuleId);
+    setShowDeleteSheet(false);
+    close();
+    showToast({
+      message: 'Conta recorrente encerrada e lançamentos excluídos!',
       type: 'info',
     });
   };
@@ -943,6 +1055,12 @@ export const TransactionModal: React.FC = () => {
                               {item.installmentsCount > 1 && (
                                 <span className="px-1.5 py-0.5 rounded-md bg-[var(--primary)]/15 text-[var(--primary-bright)] text-[10px] font-bold shrink-0 tabular-nums">
                                   {item.installmentsCount}x de {formatCentsToBRL(Math.round(item.amountCents / item.installmentsCount))}
+                                </span>
+                              )}
+                              {item.installmentsCount <= 1 && item.isRecurring && (
+                                <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md bg-[var(--primary)]/15 text-[var(--primary-bright)] text-[10px] font-bold shrink-0">
+                                  <Repeat className="w-2.5 h-2.5" />
+                                  Todo mês
                                 </span>
                               )}
                             </div>
@@ -1187,7 +1305,16 @@ export const TransactionModal: React.FC = () => {
                 <button
                   key={cat.id}
                   type="button"
-                  onClick={() => setCategoryId(cat.id)}
+                  onClick={() => {
+                    setCategoryId(cat.id);
+                    const isSubCat =
+                      cat.id.endsWith('cat_assinaturas') ||
+                      cat.name.toLowerCase().includes('assinatura');
+                    if (!editingTransaction && isSubCat) {
+                      setIsRecurring(true);
+                      setInstallmentsCount(1);
+                    }
+                  }}
                   className={`touch-pan-xy flex flex-col items-center justify-center min-w-[62px] py-2 px-1.5 rounded-2xl border transition-transform duration-100 active:scale-95 shrink-0 ${
                     isSelected
                       ? 'border-[var(--primary)] bg-[var(--surface-2)] shadow-sm text-[var(--text)]'
@@ -1310,42 +1437,94 @@ export const TransactionModal: React.FC = () => {
             </div>
           )}
 
-          {/* Installment quick pills (if credit card expense) */}
-          {paymentMethod === 'credit' && type === 'expense' && !editingTransaction && (
-            <div className="flex flex-col gap-1.5 p-2.5 rounded-2xl bg-[var(--surface-2)] border border-[var(--border)]">
-              <div className="flex items-center justify-between text-[11px]">
-                <span className="flex items-center gap-1.5 font-semibold text-[var(--text)]">
-                  <CreditCard className="w-3.5 h-3.5 text-[var(--primary)]" />
-                  Parcelamento
-                </span>
-                <span className="text-[var(--text-muted)] tabular-nums">
-                  {installmentsCount === 1
-                    ? 'À vista'
-                    : `${installmentsCount}x de ${formatCentsToBRL(Math.round(amountCents / installmentsCount))}`}
-                </span>
+          {/* Billing Frequency: Monthly Recurring vs Single / Installments (1x-24x) */}
+          {!editingTransaction && (
+            <div
+              data-no-sheet-drag="true"
+              className="flex flex-col gap-2 p-2.5 rounded-2xl bg-[var(--surface-2)] border border-[var(--border)]"
+            >
+              <div className="grid grid-cols-2 gap-1.5 p-1 rounded-xl bg-[var(--surface)] border border-[var(--border)]">
+                <button
+                  type="button"
+                  onClick={() => setIsRecurring(false)}
+                  className={`py-1.5 px-2 rounded-lg text-[11px] transition-transform duration-100 active:scale-95 truncate ${
+                    !isRecurring
+                      ? 'bg-[var(--primary)] text-black font-bold shadow-xs'
+                      : 'text-[var(--text-muted)] font-semibold hover:text-[var(--text)]'
+                  }`}
+                >
+                  {paymentMethod === 'credit' && type === 'expense'
+                    ? 'Único ou Parcelado (1x–24x)'
+                    : 'Lançamento Único'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsRecurring(true);
+                    setInstallmentsCount(1);
+                  }}
+                  className={`inline-flex items-center justify-center gap-1 py-1.5 px-2 rounded-lg text-[11px] transition-transform duration-100 active:scale-95 truncate ${
+                    isRecurring
+                      ? 'bg-[var(--primary)] text-black font-bold shadow-xs'
+                      : 'text-[var(--text-muted)] font-semibold hover:text-[var(--text)]'
+                  }`}
+                >
+                  <Repeat className="w-3 h-3 shrink-0" />
+                  <span className="truncate">Conta Recorrente</span>
+                </button>
               </div>
-              <div
-                data-horizontal-scroll="true"
-                className="flex gap-1.5 overflow-x-auto no-scrollbar touch-pan-xy"
-              >
-                {INSTALLMENT_PRESETS.map((num) => {
-                  const isSelected = installmentsCount === num;
-                  return (
-                    <button
-                      key={num}
-                      type="button"
-                      onClick={() => setInstallmentsCount(num)}
-                      className={`touch-pan-xy px-2.5 py-1 rounded-lg text-xs font-semibold shrink-0 transition-transform duration-100 active:scale-95 ${
-                        isSelected
-                          ? 'bg-[var(--primary)] text-black'
-                          : 'bg-[var(--surface)] text-[var(--text-muted)] border border-[var(--border)]'
-                      }`}
+
+              {isRecurring ? (
+                <div className="flex items-center justify-between gap-2 px-1 py-0.5 text-[11px]">
+                  <span className="flex items-center gap-1.5 font-semibold text-[var(--primary-bright)]">
+                    <Repeat className="w-3.5 h-3.5 shrink-0" />
+                    Cobrado todo mês automaticamente
+                  </span>
+                  <span className="text-[var(--text-muted)] tabular-nums shrink-0">
+                    Dia {Number(date.split('-')[2]) || 1}
+                    {amountCents > 0 ? ` · ${formatCentsToBRL(amountCents)}/mês` : ''}
+                  </span>
+                </div>
+              ) : (
+                paymentMethod === 'credit' &&
+                type === 'expense' && (
+                  <>
+                    <div className="flex items-center justify-between text-[11px] px-0.5">
+                      <span className="flex items-center gap-1.5 font-semibold text-[var(--text)]">
+                        <CreditCard className="w-3.5 h-3.5 text-[var(--primary)]" />
+                        Parcelamento
+                      </span>
+                      <span className="text-[var(--text-muted)] tabular-nums">
+                        {installmentsCount === 1
+                          ? 'À vista'
+                          : `${installmentsCount}x de ${formatCentsToBRL(Math.round(amountCents / installmentsCount))}`}
+                      </span>
+                    </div>
+                    <div
+                      data-horizontal-scroll="true"
+                      className="flex gap-1.5 overflow-x-auto no-scrollbar touch-pan-xy"
                     >
-                      {num === 1 ? '1x' : `${num}x`}
-                    </button>
-                  );
-                })}
-              </div>
+                      {INSTALLMENT_PRESETS.map((num) => {
+                        const isSelected = installmentsCount === num;
+                        return (
+                          <button
+                            key={num}
+                            type="button"
+                            onClick={() => setInstallmentsCount(num)}
+                            className={`touch-pan-xy px-2.5 py-1 rounded-lg text-xs font-semibold shrink-0 transition-transform duration-100 active:scale-95 ${
+                              isSelected
+                                ? 'bg-[var(--primary)] text-black'
+                                : 'bg-[var(--surface)] text-[var(--text-muted)] border border-[var(--border)]'
+                            }`}
+                          >
+                            {num === 1 ? '1x' : `${num}x`}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </>
+                )
+              )}
             </div>
           )}
 
@@ -1362,14 +1541,18 @@ export const TransactionModal: React.FC = () => {
         title={
           editingTransaction?.installment
             ? `Parcela ${editingTransaction.installment.number}/${editingTransaction.installment.total}`
-            : 'Excluir lançamento?'
+            : editingTransaction?.recurringRuleId
+              ? 'Conta recorrente'
+              : 'Excluir lançamento?'
         }
       >
         <div className="flex flex-col gap-3">
           <p className="text-sm text-[var(--text-muted)]">
             {editingTransaction?.installment
               ? 'Este gasto faz parte de uma compra parcelada. O que deseja excluir?'
-              : 'Tem certeza que deseja excluir este lançamento?'}
+              : editingTransaction?.recurringRuleId
+                ? 'Esta é uma conta recorrente mensal. Deseja encerrar a recorrência ou excluir só este mês?'
+                : 'Tem certeza que deseja excluir este lançamento?'}
           </p>
 
           {editingTransaction?.installment ? (
@@ -1382,6 +1565,15 @@ export const TransactionModal: React.FC = () => {
               </Button>
               <Button variant="secondary" size="lg" fullWidth onClick={handleDeleteSingle}>
                 Excluir apenas esta parcela
+              </Button>
+            </>
+          ) : editingTransaction?.recurringRuleId ? (
+            <>
+              <Button variant="danger" size="lg" fullWidth onClick={handleDeleteRecurring}>
+                Encerrar conta recorrente e excluir lançamentos
+              </Button>
+              <Button variant="secondary" size="lg" fullWidth onClick={handleDeleteSingle}>
+                Excluir apenas este mês
               </Button>
             </>
           ) : (

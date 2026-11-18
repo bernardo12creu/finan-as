@@ -8,6 +8,7 @@ export type SubscriptionId =
   | 'globoplay'
   | 'apple'
   | 'chatgpt'
+  | 'gemini'
   | 'meliplus'
   | 'xbox'
   | 'psplus'
@@ -97,6 +98,14 @@ export const POPULAR_SUBSCRIPTIONS: SubscriptionPreset[] = [
     bgColor: '#10A37F',
     fgColor: '#FFFFFF',
     keywords: ['chatgpt', 'chat gpt', 'openai'],
+  },
+  {
+    id: 'gemini',
+    name: 'Gemini',
+    shortName: 'Gem',
+    bgColor: '#131314',
+    fgColor: '#8AB4F8',
+    keywords: ['gemini', 'google gemini', 'gemini advanced', 'google one'],
   },
   {
     id: 'meliplus',

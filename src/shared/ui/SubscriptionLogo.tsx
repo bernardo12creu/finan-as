@@ -255,6 +255,29 @@ function renderSubscriptionGlyph(sub: SubscriptionPreset): React.ReactNode {
           />
         </svg>
       );
+    case 'gemini':
+      return (
+        <svg viewBox="0 0 32 32" className="w-full h-full" aria-hidden="true">
+          <defs>
+            <linearGradient
+              id="geminiGrad"
+              x1="6"
+              y1="6"
+              x2="26"
+              y2="26"
+              gradientUnits="userSpaceOnUse"
+            >
+              <stop offset="0%" stopColor="#4E82EE" />
+              <stop offset="50%" stopColor="#9B72CB" />
+              <stop offset="100%" stopColor="#D96570" />
+            </linearGradient>
+          </defs>
+          <path
+            d="M16 4C16.8 11.4 20.6 15.2 28 16C20.6 16.8 16.8 20.6 16 28C15.2 20.6 11.4 16.8 4 16C11.4 15.2 15.2 11.4 16 4Z"
+            fill="url(#geminiGrad)"
+          />
+        </svg>
+      );
   }
 }
 

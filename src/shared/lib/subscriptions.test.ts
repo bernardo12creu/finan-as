@@ -9,9 +9,9 @@ describe('popular subscription presets & matching', () => {
   it('includes core requested streaming and music subscriptions', () => {
     const ids = POPULAR_SUBSCRIPTIONS.map((s) => s.id);
     expect(ids).toEqual(
-      expect.arrayContaining(['netflix', 'hbomax', 'primevideo', 'disneyplus', 'spotify'])
+      expect.arrayContaining(['netflix', 'hbomax', 'primevideo', 'disneyplus', 'spotify', 'gemini'])
     );
-    expect(POPULAR_SUBSCRIPTIONS).toHaveLength(16);
+    expect(POPULAR_SUBSCRIPTIONS).toHaveLength(17);
   });
 
   it('matches subscription names regardless of casing or extra details', () => {
@@ -25,6 +25,8 @@ describe('popular subscription presets & matching', () => {
     expect(matchSubscriptionByName('Spotify Duo')?.id).toBe('spotify');
     expect(matchSubscriptionByName('YouTube Premium')?.id).toBe('youtube');
     expect(matchSubscriptionByName('ChatGPT Plus')?.id).toBe('chatgpt');
+    expect(matchSubscriptionByName('Gemini')?.id).toBe('gemini');
+    expect(matchSubscriptionByName('Google Gemini Advanced')?.id).toBe('gemini');
     expect(matchSubscriptionByName('iCloud+ 200GB')?.id).toBe('apple');
   });
 

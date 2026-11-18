@@ -50,6 +50,36 @@ import {
   Repeat,
 } from 'lucide-react';
 
+function normalizeCategoryName(name: string): string {
+  return name
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
+}
+
+function isSubscriptionCat(cat: { id: string; name: string } | undefined): boolean {
+  if (!cat) return false;
+  return (
+    cat.id.endsWith('cat_assinaturas') ||
+    normalizeCategoryName(cat.name).includes('assinatura')
+  );
+}
+
+function isEducationCat(cat: { id: string; name: string } | undefined): boolean {
+  if (!cat) return false;
+  return (
+    cat.id.endsWith('cat_educacao') ||
+    normalizeCategoryName(cat.name).includes('educac')
+  );
+}
+
+function canCategoryBeRecurring(
+  txType: TransactionType,
+  cat: { id: string; name: string } | undefined
+): boolean {
+  return txType === 'expense' && (isSubscriptionCat(cat) || isEducationCat(cat));
+}
+
 interface SpeechRecognitionAlternativeLike {
   transcript: string;
 }
@@ -376,15 +406,17 @@ export const TransactionModal: React.FC = () => {
   );
 
   const selectedCategory = categories.find((c) => c.id === categoryId);
-  const isSubscriptionCategory = Boolean(
-    type === 'expense' &&
-      selectedCategory &&
-      (selectedCategory.id.endsWith('cat_assinaturas') ||
-        selectedCategory.name.toLowerCase().includes('assinatura'))
-  );
+  const isSubscriptionCategory = type === 'expense' && isSubscriptionCat(selectedCategory);
+  const canBeRecurringCategory = canCategoryBeRecurring(type, selectedCategory);
   const matchedSubscription = isSubscriptionCategory
     ? matchSubscriptionByName(description)
     : undefined;
+
+  useEffect(() => {
+    if (!editingTransaction && !canBeRecurringCategory && isRecurring) {
+      setIsRecurring(false);
+    }
+  }, [editingTransaction, canBeRecurringCategory, isRecurring]);
 
   const handleSelectSubscription = (sub: SubscriptionPreset) => {
     setDescription(sub.name);
@@ -612,7 +644,8 @@ export const TransactionModal: React.FC = () => {
           });
         }
       } else {
-        if (isRecurring) {
+        const effectiveIsRecurring = isRecurring && canBeRecurringCategory;
+        if (effectiveIsRecurring) {
           const dayOfMonth = Number(date.split('-')[2]) || 1;
           const startCompetence = date.substring(0, 7);
           const currentUserId = useSessionStore.getState().currentUserId || 'default';
@@ -1307,12 +1340,13 @@ export const TransactionModal: React.FC = () => {
                   type="button"
                   onClick={() => {
                     setCategoryId(cat.id);
-                    const isSubCat =
-                      cat.id.endsWith('cat_assinaturas') ||
-                      cat.name.toLowerCase().includes('assinatura');
-                    if (!editingTransaction && isSubCat) {
-                      setIsRecurring(true);
-                      setInstallmentsCount(1);
+                    if (!editingTransaction) {
+                      if (canCategoryBeRecurring(type, cat)) {
+                        setIsRecurring(true);
+                        setInstallmentsCount(1);
+                      } else {
+                        setIsRecurring(false);
+                      }
                     }
                   }}
                   className={`touch-pan-xy flex flex-col items-center justify-center min-w-[62px] py-2 px-1.5 rounded-2xl border transition-transform duration-100 active:scale-95 shrink-0 ${
@@ -1437,96 +1471,99 @@ export const TransactionModal: React.FC = () => {
             </div>
           )}
 
-          {/* Billing Frequency: Monthly Recurring vs Single / Installments (1x-24x) */}
-          {!editingTransaction && (
-            <div
-              data-no-sheet-drag="true"
-              className="flex flex-col gap-2 p-2.5 rounded-2xl bg-[var(--surface-2)] border border-[var(--border)]"
-            >
-              <div className="grid grid-cols-2 gap-1.5 p-1 rounded-xl bg-[var(--surface)] border border-[var(--border)]">
-                <button
-                  type="button"
-                  onClick={() => setIsRecurring(false)}
-                  className={`py-1.5 px-2 rounded-lg text-[11px] transition-transform duration-100 active:scale-95 truncate ${
-                    !isRecurring
-                      ? 'bg-[var(--primary)] text-black font-bold shadow-xs'
-                      : 'text-[var(--text-muted)] font-semibold hover:text-[var(--text)]'
-                  }`}
-                >
-                  {paymentMethod === 'credit' && type === 'expense'
-                    ? 'Único ou Parcelado (1x–24x)'
-                    : 'Lançamento Único'}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsRecurring(true);
-                    setInstallmentsCount(1);
-                  }}
-                  className={`inline-flex items-center justify-center gap-1 py-1.5 px-2 rounded-lg text-[11px] transition-transform duration-100 active:scale-95 truncate ${
-                    isRecurring
-                      ? 'bg-[var(--primary)] text-black font-bold shadow-xs'
-                      : 'text-[var(--text-muted)] font-semibold hover:text-[var(--text)]'
-                  }`}
-                >
-                  <Repeat className="w-3 h-3 shrink-0" />
-                  <span className="truncate">Conta Recorrente</span>
-                </button>
-              </div>
-
-              {isRecurring ? (
-                <div className="flex items-center justify-between gap-2 px-1 py-0.5 text-[11px]">
-                  <span className="flex items-center gap-1.5 font-semibold text-[var(--primary-bright)]">
-                    <Repeat className="w-3.5 h-3.5 shrink-0" />
-                    Cobrado todo mês automaticamente
-                  </span>
-                  <span className="text-[var(--text-muted)] tabular-nums shrink-0">
-                    Dia {Number(date.split('-')[2]) || 1}
-                    {amountCents > 0 ? ` · ${formatCentsToBRL(amountCents)}/mês` : ''}
-                  </span>
-                </div>
-              ) : (
-                paymentMethod === 'credit' &&
-                type === 'expense' && (
-                  <>
-                    <div className="flex items-center justify-between text-[11px] px-0.5">
-                      <span className="flex items-center gap-1.5 font-semibold text-[var(--text)]">
-                        <CreditCard className="w-3.5 h-3.5 text-[var(--primary)]" />
-                        Parcelamento
-                      </span>
-                      <span className="text-[var(--text-muted)] tabular-nums">
-                        {installmentsCount === 1
-                          ? 'À vista'
-                          : `${installmentsCount}x de ${formatCentsToBRL(Math.round(amountCents / installmentsCount))}`}
-                      </span>
-                    </div>
-                    <div
-                      data-horizontal-scroll="true"
-                      className="flex gap-1.5 overflow-x-auto no-scrollbar touch-pan-xy"
+          {/* Billing Frequency: Conta Recorrente (only Assinaturas / Educação) & Parcelamento (1x-24x on Credit) */}
+          {!editingTransaction &&
+            (canBeRecurringCategory || (paymentMethod === 'credit' && type === 'expense')) && (
+              <div
+                data-no-sheet-drag="true"
+                className="flex flex-col gap-2 p-2.5 rounded-2xl bg-[var(--surface-2)] border border-[var(--border)]"
+              >
+                {canBeRecurringCategory && (
+                  <div className="grid grid-cols-2 gap-1.5 p-1 rounded-xl bg-[var(--surface)] border border-[var(--border)]">
+                    <button
+                      type="button"
+                      onClick={() => setIsRecurring(false)}
+                      className={`py-1.5 px-2 rounded-lg text-[11px] transition-transform duration-100 active:scale-95 truncate ${
+                        !isRecurring
+                          ? 'bg-[var(--primary)] text-black font-bold shadow-xs'
+                          : 'text-[var(--text-muted)] font-semibold hover:text-[var(--text)]'
+                      }`}
                     >
-                      {INSTALLMENT_PRESETS.map((num) => {
-                        const isSelected = installmentsCount === num;
-                        return (
-                          <button
-                            key={num}
-                            type="button"
-                            onClick={() => setInstallmentsCount(num)}
-                            className={`touch-pan-xy px-2.5 py-1 rounded-lg text-xs font-semibold shrink-0 transition-transform duration-100 active:scale-95 ${
-                              isSelected
-                                ? 'bg-[var(--primary)] text-black'
-                                : 'bg-[var(--surface)] text-[var(--text-muted)] border border-[var(--border)]'
-                            }`}
-                          >
-                            {num === 1 ? '1x' : `${num}x`}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </>
-                )
-              )}
-            </div>
-          )}
+                      {paymentMethod === 'credit' && type === 'expense'
+                        ? 'Único ou Parcelado (1x–24x)'
+                        : 'Lançamento Único'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsRecurring(true);
+                        setInstallmentsCount(1);
+                      }}
+                      className={`inline-flex items-center justify-center gap-1 py-1.5 px-2 rounded-lg text-[11px] transition-transform duration-100 active:scale-95 truncate ${
+                        isRecurring
+                          ? 'bg-[var(--primary)] text-black font-bold shadow-xs'
+                          : 'text-[var(--text-muted)] font-semibold hover:text-[var(--text)]'
+                      }`}
+                    >
+                      <Repeat className="w-3 h-3 shrink-0" />
+                      <span className="truncate">Conta Recorrente</span>
+                    </button>
+                  </div>
+                )}
+
+                {canBeRecurringCategory && isRecurring ? (
+                  <div className="flex items-center justify-between gap-2 px-1 py-0.5 text-[11px]">
+                    <span className="flex items-center gap-1.5 font-semibold text-[var(--primary-bright)]">
+                      <Repeat className="w-3.5 h-3.5 shrink-0" />
+                      Cobrado todo mês automaticamente
+                    </span>
+                    <span className="text-[var(--text-muted)] tabular-nums shrink-0">
+                      Dia {Number(date.split('-')[2]) || 1}
+                      {amountCents > 0 ? ` · ${formatCentsToBRL(amountCents)}/mês` : ''}
+                    </span>
+                  </div>
+                ) : (
+                  paymentMethod === 'credit' &&
+                  type === 'expense' && (
+                    <>
+                      <div className="flex items-center justify-between text-[11px] px-0.5">
+                        <span className="flex items-center gap-1.5 font-semibold text-[var(--text)]">
+                          <CreditCard className="w-3.5 h-3.5 text-[var(--primary)]" />
+                          Parcelamento
+                        </span>
+                        <span className="text-[var(--text-muted)] tabular-nums">
+                          {installmentsCount === 1
+                            ? 'À vista'
+                            : `${installmentsCount}x de ${formatCentsToBRL(Math.round(amountCents / installmentsCount))}`}
+                        </span>
+                      </div>
+                      <div
+                        data-horizontal-scroll="true"
+                        className="flex gap-1.5 overflow-x-auto no-scrollbar touch-pan-xy"
+                      >
+                        {INSTALLMENT_PRESETS.map((num) => {
+                          const isSelected = installmentsCount === num;
+                          return (
+                            <button
+                              key={num}
+                              type="button"
+                              onClick={() => setInstallmentsCount(num)}
+                              className={`touch-pan-xy px-2.5 py-1 rounded-lg text-xs font-semibold shrink-0 transition-transform duration-100 active:scale-95 ${
+                                isSelected
+                                  ? 'bg-[var(--primary)] text-black'
+                                  : 'bg-[var(--surface)] text-[var(--text-muted)] border border-[var(--border)]'
+                              }`}
+                            >
+                              {num === 1 ? '1x' : `${num}x`}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </>
+                  )
+                )}
+              </div>
+            )}
 
               {/* Compact Numeric Keypad */}
               <NumericKeypad compact onKeyPress={handleKeyPress} />

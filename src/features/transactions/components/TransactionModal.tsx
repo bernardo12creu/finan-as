@@ -7,6 +7,7 @@ import { CategoryIcon } from '@/shared/ui/CategoryIcon';
 import { BankLogo } from '@/shared/ui/BankLogo';
 import { SubscriptionLogo } from '@/shared/ui/SubscriptionLogo';
 import { matchBankByName } from '@/shared/lib/banks';
+import { isCardOrDualAccount } from '@/shared/lib/cardLimit';
 import {
   POPULAR_SUBSCRIPTIONS,
   SubscriptionPreset,
@@ -173,6 +174,8 @@ export const TransactionModal: React.FC = () => {
   const [showDatePicker, setShowDatePicker] = useState<boolean>(false);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [showDeleteSheet, setShowDeleteSheet] = useState<boolean>(false);
+  const [hasExplicitPaymentChoice, setHasExplicitPaymentChoice] = useState<boolean>(false);
+  const [showCardModePrompt, setShowCardModePrompt] = useState<boolean>(false);
   const [applyToSeries, setApplyToSeries] = useState<boolean>(true);
   const [seriesSiblingsCount, setSeriesSiblingsCount] = useState<number>(1);
   const [isVoiceMode, setIsVoiceMode] = useState<boolean>(false);
@@ -310,6 +313,7 @@ export const TransactionModal: React.FC = () => {
   useLayoutEffect(() => {
     if (isOpen) {
       setShowDeleteSheet(false);
+      setShowCardModePrompt(false);
       setShowDatePicker(false);
       setApplyToSeries(true);
       setIsVoiceMode(false);
@@ -325,6 +329,7 @@ export const TransactionModal: React.FC = () => {
         setCategoryId(editingTransaction.categoryId);
         setAccountId(editingTransaction.accountId);
         setPaymentMethod(editingTransaction.paymentMethod);
+        setHasExplicitPaymentChoice(true);
         setDate(editingTransaction.date);
         setInstallmentsCount(editingTransaction.installment?.total || 1);
         setIsRecurring(Boolean(editingTransaction.recurringRuleId));
@@ -342,10 +347,12 @@ export const TransactionModal: React.FC = () => {
         setIsRecurring(false);
         setSeriesSiblingsCount(1);
         setPaymentMethod(getCachedPaymentMethod());
+        setHasExplicitPaymentChoice(false);
       }
     } else {
       stopListening();
       setIsVoiceMode(false);
+      setShowCardModePrompt(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, editingTransaction, defaultType]);
@@ -406,6 +413,7 @@ export const TransactionModal: React.FC = () => {
   );
 
   const selectedCategory = categories.find((c) => c.id === categoryId);
+  const selectedAccount = accounts.find((a) => a.id === accountId) ?? accounts[0];
   const isSubscriptionCategory = type === 'expense' && isSubscriptionCat(selectedCategory);
   const canBeRecurringCategory = canCategoryBeRecurring(type, selectedCategory);
   const matchedSubscription = isSubscriptionCategory
@@ -584,230 +592,257 @@ export const TransactionModal: React.FC = () => {
     }
   }, [isSubmitting, parsedVoiceItems, stopListening, close]);
 
-  const handleSave = useCallback(async () => {
-    if (isSubmitting) return;
+  const saveTransactionWithMethod = useCallback(
+    async (overridePaymentMethod?: PaymentMethod) => {
+      if (isSubmitting) return;
 
-    if (amountCents <= 0) {
-      showToast({ message: 'Digite um valor maior que zero', type: 'error' });
-      return;
-    }
-
-    const selectedCategory = categories.find((c) => c.id === categoryId);
-    const finalDescription =
-      description.trim() || selectedCategory?.name || (type === 'expense' ? 'Despesa' : 'Receita');
-    const finalAccountId = accountId || (accounts[0]?.id ?? '');
-
-    setIsSubmitting(true);
-    try {
-      if (editingTransaction) {
-        if (hasSeries && applyToSeries) {
-          const cleanFinalDesc = stripInstallmentSuffix(finalDescription);
-          const updatedCount = await transactionRepository.updateSeries(editingTransaction.id, {
-            type,
-            categoryId: categoryId || editingTransaction.categoryId,
-            accountId: finalAccountId,
-            paymentMethod,
-            baseDescription: cleanFinalDesc,
-            amountCents: amountCents !== editingTransaction.amountCents ? amountCents : undefined,
-            anchorDate: date !== editingTransaction.date ? date : undefined,
-          });
-
-          showToast({
-            message: isInstallmentEdit
-              ? `Todas as ${updatedCount} parcelas foram atualizadas!`
-              : `Todos os ${updatedCount} lançamentos foram atualizados!`,
-            type: 'success',
-          });
-        } else {
-          const singleDescription =
-            editingTransaction.installment && editingTransaction.installment.total > 1
-              ? formatInstallmentDescription(
-                  finalDescription,
-                  editingTransaction.installment.number,
-                  editingTransaction.installment.total
-                )
-              : stripInstallmentSuffix(finalDescription);
-
-          await transactionRepository.update(editingTransaction.id, {
-            type,
-            amountCents,
-            description: singleDescription,
-            categoryId: categoryId || editingTransaction.categoryId,
-            accountId: finalAccountId,
-            paymentMethod,
-            date,
-          });
-
-          showToast({
-            message: 'Lançamento atualizado!',
-            type: 'success',
-          });
-        }
-      } else {
-        const effectiveIsRecurring = isRecurring && canBeRecurringCategory;
-        if (effectiveIsRecurring) {
-          const dayOfMonth = Number(date.split('-')[2]) || 1;
-          const startCompetence = date.substring(0, 7);
-          const currentUserId = useSessionStore.getState().currentUserId || 'default';
-
-          const rule = await recurringRepository.create({
-            templateTransaction: {
-              description: finalDescription,
-              amountCents,
-              type,
-              categoryId,
-              accountId: finalAccountId,
-              paymentMethod,
-              tags: ['recorrente'],
-              visibility: 'shared',
-              paidBy: currentUserId,
-            },
-            dayOfMonth,
-            startCompetence,
-            active: true,
-          });
-
-          await transactionRepository.create({
-            type,
-            amountCents,
-            description: finalDescription,
-            categoryId,
-            accountId: finalAccountId,
-            paymentMethod,
-            date,
-            status: 'confirmed',
-            recurringRuleId: rule.id,
-            tags: ['recorrente'],
-          });
-
-          try {
-            localStorage.setItem(LAST_PAYMENT_KEY, paymentMethod);
-          } catch {
-            // ignore
-          }
-          await settingsRepository.updatePreferences({ lastPaymentMethod: paymentMethod });
-
-          showToast({
-            message: `Conta recorrente "${finalDescription}" (${formatCentsToBRL(amountCents)}/mês) salva!`,
-            type: 'success',
-            action: {
-              label: 'Desfazer',
-              onClick: async () => {
-                await transactionRepository.softDeleteByRecurringRule(rule.id);
-                showToast({ message: 'Conta recorrente desfeita!', type: 'info' });
-              },
-            },
-          });
-        } else if (type === 'expense' && paymentMethod === 'credit' && installmentsCount > 1) {
-          const groupId = 'group_' + Math.random().toString(36).substring(2, 10);
-          const competence = date.substring(0, 7);
-          const plan = generateInstallmentPlan({
-            totalAmountCents: amountCents,
-            installmentsCount,
-            firstDate: date,
-            initialCompetence: competence,
-            baseDescription: finalDescription,
-          });
-
-          await transactionRepository.createMany(
-            plan.map((item) => ({
-              type: 'expense',
-              amountCents: item.amountCents,
-              description: item.description,
-              categoryId,
-              accountId: finalAccountId,
-              paymentMethod: 'credit',
-              date: item.date,
-              status: 'confirmed',
-              installment: {
-                groupId,
-                number: item.installmentNumber,
-                total: item.totalInstallments,
-              },
-            }))
-          );
-
-          try {
-            localStorage.setItem(LAST_PAYMENT_KEY, 'credit');
-          } catch {
-            // ignore
-          }
-          await settingsRepository.updatePreferences({ lastPaymentMethod: 'credit' });
-
-          showToast({
-            message: `Compra parcelada em ${installmentsCount}x salva!`,
-            type: 'success',
-            action: {
-              label: 'Desfazer',
-              onClick: async () => {
-                await transactionRepository.softDeleteGroup(groupId);
-                showToast({ message: 'Parcelamento desfeito!', type: 'info' });
-              },
-            },
-          });
-        } else {
-          const created = await transactionRepository.create({
-            type,
-            amountCents,
-            description: finalDescription,
-            categoryId,
-            accountId: finalAccountId,
-            paymentMethod,
-            date,
-            status: 'confirmed',
-          });
-
-          try {
-            localStorage.setItem(LAST_PAYMENT_KEY, paymentMethod);
-          } catch {
-            // ignore
-          }
-          await settingsRepository.updatePreferences({ lastPaymentMethod: paymentMethod });
-
-          showToast({
-            message: `${type === 'expense' ? 'Gasto' : 'Receita'} de ${formatCentsToBRL(amountCents)} salvo!`,
-            type: 'success',
-            action: {
-              label: 'Desfazer',
-              onClick: async () => {
-                await transactionRepository.softDelete(created.id);
-                showToast({ message: 'Lançamento desfeito!', type: 'info' });
-              },
-            },
-          });
-        }
+      if (amountCents <= 0) {
+        showToast({ message: 'Digite um valor maior que zero', type: 'error' });
+        return;
       }
 
-      close();
-    } catch (err) {
-      console.error(err);
-      showToast({ message: 'Erro ao salvar lançamento', type: 'error' });
-    } finally {
-      setIsSubmitting(false);
-    }
-  }, [
-    isSubmitting,
-    amountCents,
-    categories,
-    categoryId,
-    description,
-    type,
-    accountId,
-    accounts,
-    editingTransaction,
-    hasSeries,
-    applyToSeries,
-    isInstallmentEdit,
-    paymentMethod,
-    date,
-    installmentsCount,
-    isRecurring,
-    close,
-  ]);
+      if (!categoryId) {
+        showToast({ message: 'Selecione uma categoria', type: 'error' });
+        return;
+      }
+
+      const selectedCategory = categories.find((c) => c.id === categoryId);
+      const finalDescription =
+        description.trim() || selectedCategory?.name || (type === 'expense' ? 'Despesa' : 'Receita');
+      const finalAccountId = accountId || (accounts[0]?.id ?? '');
+      const targetAccount = accounts.find((a) => a.id === finalAccountId);
+      const effectivePaymentMethod = overridePaymentMethod ?? paymentMethod;
+
+      if (
+        !editingTransaction &&
+        type === 'expense' &&
+        !overridePaymentMethod &&
+        isCardOrDualAccount(targetAccount) &&
+        !hasExplicitPaymentChoice
+      ) {
+        setShowCardModePrompt(true);
+        return;
+      }
+
+      setIsSubmitting(true);
+      try {
+        if (editingTransaction) {
+          if (hasSeries && applyToSeries) {
+            const cleanFinalDesc = stripInstallmentSuffix(finalDescription);
+            const updatedCount = await transactionRepository.updateSeries(editingTransaction.id, {
+              type,
+              categoryId: categoryId || editingTransaction.categoryId,
+              accountId: finalAccountId,
+              paymentMethod: effectivePaymentMethod,
+              baseDescription: cleanFinalDesc,
+              amountCents: amountCents !== editingTransaction.amountCents ? amountCents : undefined,
+              anchorDate: date !== editingTransaction.date ? date : undefined,
+            });
+
+            showToast({
+              message: isInstallmentEdit
+                ? `Todas as ${updatedCount} parcelas foram atualizadas!`
+                : `Todos os ${updatedCount} lançamentos foram atualizados!`,
+              type: 'success',
+            });
+          } else {
+            const singleDescription =
+              editingTransaction.installment && editingTransaction.installment.total > 1
+                ? formatInstallmentDescription(
+                    finalDescription,
+                    editingTransaction.installment.number,
+                    editingTransaction.installment.total
+                  )
+                : stripInstallmentSuffix(finalDescription);
+
+            await transactionRepository.update(editingTransaction.id, {
+              type,
+              amountCents,
+              description: singleDescription,
+              categoryId: categoryId || editingTransaction.categoryId,
+              accountId: finalAccountId,
+              paymentMethod: effectivePaymentMethod,
+              date,
+            });
+
+            showToast({
+              message: 'Lançamento atualizado!',
+              type: 'success',
+            });
+          }
+        } else {
+          const effectiveIsRecurring = isRecurring && canBeRecurringCategory;
+          if (effectiveIsRecurring) {
+            const dayOfMonth = Number(date.split('-')[2]) || 1;
+            const startCompetence = date.substring(0, 7);
+            const currentUserId = useSessionStore.getState().currentUserId || 'default';
+
+            const rule = await recurringRepository.create({
+              templateTransaction: {
+                description: finalDescription,
+                amountCents,
+                type,
+                categoryId,
+                accountId: finalAccountId,
+                paymentMethod: effectivePaymentMethod,
+                tags: ['recorrente'],
+                visibility: 'shared',
+                paidBy: currentUserId,
+              },
+              dayOfMonth,
+              startCompetence,
+              active: true,
+            });
+
+            await transactionRepository.create({
+              type,
+              amountCents,
+              description: finalDescription,
+              categoryId,
+              accountId: finalAccountId,
+              paymentMethod: effectivePaymentMethod,
+              date,
+              status: 'confirmed',
+              recurringRuleId: rule.id,
+              tags: ['recorrente'],
+            });
+
+            try {
+              localStorage.setItem(LAST_PAYMENT_KEY, effectivePaymentMethod);
+            } catch {
+              // ignore
+            }
+            await settingsRepository.updatePreferences({ lastPaymentMethod: effectivePaymentMethod });
+
+            showToast({
+              message: `Conta recorrente "${finalDescription}" (${formatCentsToBRL(amountCents)}/mês) salva!`,
+              type: 'success',
+              action: {
+                label: 'Desfazer',
+                onClick: async () => {
+                  await transactionRepository.softDeleteByRecurringRule(rule.id);
+                  showToast({ message: 'Conta recorrente desfeita!', type: 'info' });
+                },
+              },
+            });
+          } else if (type === 'expense' && effectivePaymentMethod === 'credit' && installmentsCount > 1) {
+            const groupId = 'group_' + Math.random().toString(36).substring(2, 10);
+            const competence = date.substring(0, 7);
+            const plan = generateInstallmentPlan({
+              totalAmountCents: amountCents,
+              installmentsCount,
+              firstDate: date,
+              initialCompetence: competence,
+              baseDescription: finalDescription,
+            });
+
+            await transactionRepository.createMany(
+              plan.map((item) => ({
+                type: 'expense',
+                amountCents: item.amountCents,
+                description: item.description,
+                categoryId,
+                accountId: finalAccountId,
+                paymentMethod: 'credit',
+                date: item.date,
+                status: 'confirmed',
+                installment: {
+                  groupId,
+                  number: item.installmentNumber,
+                  total: item.totalInstallments,
+                },
+              }))
+            );
+
+            try {
+              localStorage.setItem(LAST_PAYMENT_KEY, 'credit');
+            } catch {
+              // ignore
+            }
+            await settingsRepository.updatePreferences({ lastPaymentMethod: 'credit' });
+
+            showToast({
+              message: `Compra parcelada em ${installmentsCount}x salva!`,
+              type: 'success',
+              action: {
+                label: 'Desfazer',
+                onClick: async () => {
+                  await transactionRepository.softDeleteGroup(groupId);
+                  showToast({ message: 'Parcelamento desfeito!', type: 'info' });
+                },
+              },
+            });
+          } else {
+            const created = await transactionRepository.create({
+              type,
+              amountCents,
+              description: finalDescription,
+              categoryId,
+              accountId: finalAccountId,
+              paymentMethod: effectivePaymentMethod,
+              date,
+              status: 'confirmed',
+            });
+
+            try {
+              localStorage.setItem(LAST_PAYMENT_KEY, effectivePaymentMethod);
+            } catch {
+              // ignore
+            }
+            await settingsRepository.updatePreferences({ lastPaymentMethod: effectivePaymentMethod });
+
+            showToast({
+              message: `${type === 'expense' ? 'Gasto' : 'Receita'} de ${formatCentsToBRL(amountCents)} salvo!`,
+              type: 'success',
+              action: {
+                label: 'Desfazer',
+                onClick: async () => {
+                  await transactionRepository.softDelete(created.id);
+                  showToast({ message: 'Lançamento desfeito!', type: 'info' });
+                },
+              },
+            });
+          }
+        }
+
+        close();
+      } catch (err) {
+        console.error(err);
+        showToast({ message: 'Erro ao salvar lançamento', type: 'error' });
+      } finally {
+        setIsSubmitting(false);
+      }
+    },
+    [
+      isSubmitting,
+      amountCents,
+      categories,
+      categoryId,
+      description,
+      type,
+      accountId,
+      accounts,
+      editingTransaction,
+      hasSeries,
+      applyToSeries,
+      isInstallmentEdit,
+      paymentMethod,
+      hasExplicitPaymentChoice,
+      canBeRecurringCategory,
+      date,
+      installmentsCount,
+      isRecurring,
+      close,
+    ]
+  );
+
+  const handleSave = useCallback(() => {
+    void saveTransactionWithMethod();
+  }, [saveTransactionWithMethod]);
 
   // Support hardware keyboard numbers/Enter when no text input is active
   useEffect(() => {
-    if (!isOpen || showDeleteSheet || isVoiceMode) return;
+    if (!isOpen || showDeleteSheet || showCardModePrompt || isVoiceMode) return;
     const onKeyDown = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null;
       const isFormControl =
@@ -830,7 +865,7 @@ export const TransactionModal: React.FC = () => {
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [isOpen, showDeleteSheet, isVoiceMode, handleKeyPress, handleSave]);
+  }, [isOpen, showDeleteSheet, showCardModePrompt, isVoiceMode, handleKeyPress, handleSave]);
 
   const handleDeleteSingle = async () => {
     if (!editingTransaction) return;
@@ -1426,7 +1461,10 @@ export const TransactionModal: React.FC = () => {
                 <button
                   key={opt.value}
                   type="button"
-                  onClick={() => setPaymentMethod(opt.value)}
+                  onClick={() => {
+                    setPaymentMethod(opt.value);
+                    setHasExplicitPaymentChoice(true);
+                  }}
                   className={`touch-pan-xy inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-xs font-semibold shrink-0 transition-transform duration-100 active:scale-95 min-h-[34px] ${
                     isSelected
                       ? 'bg-white text-black border-white'
@@ -1456,7 +1494,12 @@ export const TransactionModal: React.FC = () => {
                   <button
                     key={acc.id}
                     type="button"
-                    onClick={() => setAccountId(acc.id)}
+                    onClick={() => {
+                      if (acc.id !== accountId && isCardOrDualAccount(acc)) {
+                        setHasExplicitPaymentChoice(false);
+                      }
+                      setAccountId(acc.id);
+                    }}
                     className={`touch-pan-xy inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl border text-[11px] font-semibold shrink-0 transition-transform duration-100 active:scale-95 ${
                       isSelected
                         ? 'border-[var(--primary)] bg-[var(--primary)]/15 text-[var(--primary-bright)]'
@@ -1468,6 +1511,74 @@ export const TransactionModal: React.FC = () => {
                   </button>
                 );
               })}
+            </div>
+          )}
+
+          {/* Dedicated Debit vs Credit Picker when Sicredi Gold / Card Account is selected */}
+          {!editingTransaction && type === 'expense' && selectedAccount && isCardOrDualAccount(selectedAccount) && (
+            <div
+              data-no-sheet-drag="true"
+              className="flex flex-col gap-1.5 p-2.5 rounded-2xl bg-[var(--surface-2)] border border-[var(--border)]"
+            >
+              <div className="flex items-center justify-between px-0.5 text-[11px]">
+                <span className="font-semibold text-[var(--text)] flex items-center gap-1.5">
+                  <CreditCard className="w-3.5 h-3.5 text-[var(--primary)]" />
+                  Como foi pago no {selectedAccount.name}?
+                </span>
+                {!hasExplicitPaymentChoice && (
+                  <span className="text-[10px] font-semibold text-[var(--warning)]">
+                    Selecione
+                  </span>
+                )}
+              </div>
+              <div className="grid grid-cols-2 gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPaymentMethod('debit');
+                    setInstallmentsCount(1);
+                    setHasExplicitPaymentChoice(true);
+                  }}
+                  className={`flex flex-col items-start text-left p-2 rounded-xl border transition-transform duration-100 active:scale-[0.98] ${
+                    paymentMethod === 'debit' && hasExplicitPaymentChoice
+                      ? 'border-[var(--primary)] bg-[var(--primary)]/15 text-[var(--text)]'
+                      : paymentMethod === 'debit'
+                        ? 'border-[var(--primary)]/50 bg-[var(--surface)] text-[var(--text)]'
+                        : 'border-[var(--border)] bg-[var(--surface)] text-[var(--text-muted)]'
+                  }`}
+                >
+                  <span className="text-xs font-bold flex items-center gap-1">
+                    <Wallet className="w-3.5 h-3.5 text-[var(--primary-bright)]" />
+                    Débito
+                  </span>
+                  <span className="text-[10px] text-[var(--text-muted)] leading-tight mt-0.5">
+                    Sai do saldo • Não usa limite
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPaymentMethod('credit');
+                    setHasExplicitPaymentChoice(true);
+                  }}
+                  className={`flex flex-col items-start text-left p-2 rounded-xl border transition-transform duration-100 active:scale-[0.98] ${
+                    paymentMethod === 'credit' && hasExplicitPaymentChoice
+                      ? 'border-[var(--primary)] bg-[var(--primary)]/15 text-[var(--text)]'
+                      : paymentMethod === 'credit'
+                        ? 'border-[var(--primary)]/50 bg-[var(--surface)] text-[var(--text)]'
+                        : 'border-[var(--border)] bg-[var(--surface)] text-[var(--text-muted)]'
+                  }`}
+                >
+                  <span className="text-xs font-bold flex items-center gap-1">
+                    <CreditCard className="w-3.5 h-3.5 text-[var(--primary-bright)]" />
+                    Crédito
+                  </span>
+                  <span className="text-[10px] text-[var(--text-muted)] leading-tight mt-0.5">
+                    Usa o limite • Não sai do saldo
+                  </span>
+                </button>
+              </div>
             </div>
           )}
 
@@ -1621,6 +1732,70 @@ export const TransactionModal: React.FC = () => {
 
           <Button variant="ghost" size="md" fullWidth onClick={() => setShowDeleteSheet(false)}>
             Cancelar
+          </Button>
+        </div>
+      </Sheet>
+
+      {/* Quick Confirmation Sheet: Debit vs Credit on Sicredi Gold / Credit Card */}
+      <Sheet
+        isOpen={showCardModePrompt}
+        onClose={() => setShowCardModePrompt(false)}
+        title={`Débito ou Crédito no ${selectedAccount?.name || 'Cartão'}?`}
+      >
+        <div className="flex flex-col gap-3">
+          <p className="text-sm text-[var(--text-muted)]">
+            Escolha como este lançamento de {formatCentsToBRL(amountCents)} deve funcionar:
+          </p>
+
+          <button
+            type="button"
+            onClick={() => {
+              setShowCardModePrompt(false);
+              setPaymentMethod('debit');
+              setInstallmentsCount(1);
+              setHasExplicitPaymentChoice(true);
+              void saveTransactionWithMethod('debit');
+            }}
+            className="w-full p-3.5 rounded-2xl border border-[var(--border)] bg-[var(--surface-2)] hover:border-[var(--primary)]/60 text-left flex items-center gap-3 active:scale-[0.98] transition-transform"
+          >
+            <div className="w-10 h-10 rounded-xl bg-[var(--primary)]/15 text-[var(--primary-bright)] flex items-center justify-center shrink-0">
+              <Wallet className="w-5 h-5" />
+            </div>
+            <div className="min-w-0">
+              <div className="text-sm font-bold text-[var(--text)]">
+                No Débito — Sair do Saldo da Conta
+              </div>
+              <div className="text-xs text-[var(--text-muted)]">
+                Não consome o limite de crédito
+              </div>
+            </div>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setShowCardModePrompt(false);
+              setPaymentMethod('credit');
+              setHasExplicitPaymentChoice(true);
+              void saveTransactionWithMethod('credit');
+            }}
+            className="w-full p-3.5 rounded-2xl border border-[var(--border)] bg-[var(--surface-2)] hover:border-[var(--primary)]/60 text-left flex items-center gap-3 active:scale-[0.98] transition-transform"
+          >
+            <div className="w-10 h-10 rounded-xl bg-[var(--primary)]/15 text-[var(--primary-bright)] flex items-center justify-center shrink-0">
+              <CreditCard className="w-5 h-5" />
+            </div>
+            <div className="min-w-0">
+              <div className="text-sm font-bold text-[var(--text)]">
+                No Crédito — Usar Limite do Cartão
+              </div>
+              <div className="text-xs text-[var(--text-muted)]">
+                Não desconta do saldo da conta
+              </div>
+            </div>
+          </button>
+
+          <Button variant="ghost" size="md" fullWidth onClick={() => setShowCardModePrompt(false)}>
+            Voltar
           </Button>
         </div>
       </Sheet>

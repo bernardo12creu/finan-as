@@ -75,6 +75,7 @@ export interface Account extends BaseEntity {
   ownerId: string;
   closingDay?: number;
   dueDay?: number;
+  creditLimitCents?: number;
 }
 
 export interface Budget extends BaseEntity {

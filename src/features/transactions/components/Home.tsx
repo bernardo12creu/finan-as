@@ -11,6 +11,7 @@ import {
   Cloud,
   Plus,
   Minus,
+  CreditCard,
 } from 'lucide-react';
 import { Card } from '@/shared/ui/Card';
 import { MobileHeader } from '@/shared/ui/MobileHeader';
@@ -19,6 +20,7 @@ import { ProgressBar } from '@/shared/ui/ProgressBar';
 import { ProgressRing } from '@/shared/ui/ProgressRing';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { CategoryIcon } from '@/shared/ui/CategoryIcon';
+import { BankLogo } from '@/shared/ui/BankLogo';
 import { formatCentsToBRL } from '@/shared/lib/money';
 import {
   getCurrentCompetence,
@@ -27,10 +29,13 @@ import {
   getNextCompetence,
 } from '@/shared/lib/dates';
 import { calculateBudgetStatus } from '@/shared/lib/budgetStatus';
+import { calculateAccountBalance, calculateCardLimitSummary } from '@/shared/lib/cardLimit';
+import { matchBankByName } from '@/shared/lib/banks';
 import {
   useTransactions,
   useCategories,
   useBudgets,
+  useAccounts,
   useUpcomingPlanned,
 } from '@/data/hooks';
 import { transactionRepository, recurringRepository } from '@/data/repositories/local/localRepository';
@@ -54,10 +59,12 @@ export const Home: React.FC = () => {
 
   // Data queries
   const { transactions, isLoading } = useTransactions({ competence });
+  const { transactions: allTransactions } = useTransactions();
   const prevCompetence = getPreviousCompetence(competence);
   const { transactions: prevTransactions } = useTransactions({ competence: prevCompetence });
   const { categories } = useCategories();
   const { budgets } = useBudgets(competence);
+  const { accounts } = useAccounts();
   const { upcoming } = useUpcomingPlanned(7);
 
   const categoryMap = useMemo(
@@ -65,33 +72,38 @@ export const Home: React.FC = () => {
     [categories]
   );
 
-  // Aggregations
+  // Aggregations (credit card spending does not subtract from checking balance)
   const {
     totalExpensesCents,
+    accountExpensesCents,
+    creditExpensesCents,
     totalIncomesCents,
-    balanceCents,
+    accountBalanceCents,
     categorySpending,
   } = useMemo(() => {
-    let expenses = 0;
-    let incomes = 0;
+    const breakdown = calculateAccountBalance(transactions);
     const catMap = new Map<string, number>();
 
     transactions.forEach((tx) => {
       if (tx.type === 'expense') {
-        expenses += tx.amountCents;
         catMap.set(tx.categoryId, (catMap.get(tx.categoryId) || 0) + tx.amountCents);
-      } else {
-        incomes += tx.amountCents;
       }
     });
 
     return {
-      totalExpensesCents: expenses,
-      totalIncomesCents: incomes,
-      balanceCents: incomes - expenses,
+      totalExpensesCents: breakdown.totalExpensesCents,
+      accountExpensesCents: breakdown.accountExpensesCents,
+      creditExpensesCents: breakdown.creditExpensesCents,
+      totalIncomesCents: breakdown.incomesCents,
+      accountBalanceCents: breakdown.accountBalanceCents,
       categorySpending: catMap,
     };
   }, [transactions]);
+
+  const creditCards = useMemo(
+    () => accounts.filter((a) => a.kind === 'credit_card'),
+    [accounts]
+  );
 
   // Previous month total expenses for comparison
   const prevExpensesCents = useMemo(() => {
@@ -211,13 +223,18 @@ export const Home: React.FC = () => {
         <div className="absolute top-0 left-0 right-0 h-32 gradient-fade pointer-events-none" />
 
         <div className="relative z-10 flex flex-col gap-4">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-medium text-[var(--text-muted)] uppercase tracking-wider">
-              Saldo do Mês
-            </span>
+          <div className="flex items-start justify-between gap-2">
+            <div className="flex flex-col gap-0.5 min-w-0">
+              <span className="text-xs font-medium text-[var(--text-muted)] uppercase tracking-wider">
+                Saldo em Conta
+              </span>
+              <span className="text-[10px] font-medium text-[var(--primary-bright)]">
+                Crédito não desconta do saldo
+              </span>
+            </div>
             {monthlyVariation ? (
               <span
-                className={`text-xs font-semibold flex items-center gap-0.5 px-2 py-0.5 rounded-full ${
+                className={`text-xs font-semibold flex items-center gap-0.5 px-2 py-0.5 rounded-full shrink-0 ${
                   monthlyVariation.percent <= 0
                     ? 'bg-[var(--primary)]/15 text-[var(--primary-bright)]'
                     : 'bg-[var(--danger)]/15 text-[var(--danger)]'
@@ -234,10 +251,10 @@ export const Home: React.FC = () => {
           </div>
 
           <div className="text-3xl font-extrabold tabular-nums tracking-tight">
-            {formatCentsToBRL(balanceCents)}
+            {formatCentsToBRL(accountBalanceCents)}
           </div>
 
-          {/* Income vs Expenses pills (tappable shortcuts to filtered list) */}
+          {/* Income vs Account Expenses pills (tappable shortcuts to filtered list) */}
           <div className="grid grid-cols-2 gap-3 pt-1">
             <button
               type="button"
@@ -260,13 +277,29 @@ export const Home: React.FC = () => {
             >
               <span className="text-[11px] text-[var(--text-muted)] font-medium flex items-center gap-1">
                 <span className="w-1.5 h-1.5 rounded-full bg-[var(--danger)]" />
-                Despesas
+                Débito / PIX (Conta)
               </span>
               <span className="text-base font-bold text-[var(--text)] tabular-nums mt-0.5">
-                {formatCentsToBRL(totalExpensesCents)}
+                {formatCentsToBRL(accountExpensesCents)}
               </span>
             </button>
           </div>
+
+          {creditExpensesCents > 0 && (
+            <button
+              type="button"
+              onClick={() => navigate('/contas')}
+              className="flex items-center justify-between px-3 py-2 rounded-xl bg-[var(--surface-2)]/60 border border-[var(--border)] text-[11px] text-left active:scale-[0.99] transition-transform"
+            >
+              <span className="text-[var(--text-muted)] flex items-center gap-1.5 min-w-0">
+                <CreditCard className="w-3.5 h-3.5 text-[var(--primary)] shrink-0" />
+                <span className="truncate">Gastos no Crédito no mês (no limite)</span>
+              </span>
+              <span className="font-bold tabular-nums text-[var(--text)] shrink-0 ml-2">
+                {formatCentsToBRL(creditExpensesCents)}
+              </span>
+            </button>
+          )}
 
           {/* 1-Tap Quick Entry Pills */}
           <div className="grid grid-cols-2 gap-2.5">
@@ -310,6 +343,104 @@ export const Home: React.FC = () => {
           )}
         </div>
       </Card>
+
+      {/* Credit Card Limit Summary Cards */}
+      {creditCards.length > 0 && (
+        <div
+          className="flex flex-col gap-3 ios-section-enter"
+          style={{ '--enter-delay': '25ms' } as React.CSSProperties}
+        >
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm font-bold text-[var(--text)] tracking-tight flex items-center gap-1.5">
+              <CreditCard className="w-4 h-4 text-[var(--primary)]" />
+              Limite do Cartão
+            </h2>
+            <button
+              type="button"
+              onClick={() => navigate('/contas')}
+              className="text-xs text-[var(--primary-bright)] font-semibold"
+            >
+              Ver cartões
+            </button>
+          </div>
+
+          {creditCards.map((card) => {
+            const summary = calculateCardLimitSummary(card, allTransactions, competence);
+            const matchedBank = matchBankByName(card.name);
+            const hasLimit = summary.limitCents > 0;
+            const barColor =
+              summary.exceededLimitCents > 0
+                ? 'var(--danger)'
+                : summary.usagePercentage >= 80
+                  ? 'var(--warning)'
+                  : 'var(--primary)';
+
+            return (
+              <Card key={card.id} className="p-4 flex flex-col gap-3 border-[var(--border)]">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <BankLogo
+                      bank={matchedBank}
+                      size="sm"
+                      fallback={<CreditCard className="w-4 h-4" />}
+                    />
+                    <div className="min-w-0">
+                      <h3 className="text-sm font-bold text-[var(--text)] truncate">{card.name}</h3>
+                      <span className="text-[11px] text-[var(--text-muted)]">
+                        Fatura do Mês (Crédito): {formatCentsToBRL(summary.currentInvoiceCents)}
+                      </span>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => navigate(`/contas?editLimit=${encodeURIComponent(card.id)}`)}
+                    className="px-2.5 py-1 rounded-xl text-[11px] font-semibold bg-[var(--surface-2)] border border-[var(--border)] text-[var(--primary-bright)] hover:border-[var(--primary)]/50 active:scale-95 transition-all shrink-0"
+                  >
+                    {hasLimit ? 'Editar limite' : 'Definir limite'}
+                  </button>
+                </div>
+
+                {hasLimit ? (
+                  <>
+                    <ProgressBar percentage={summary.usagePercentage} color={barColor} />
+                    <div className="flex items-center justify-between text-xs gap-2">
+                      <div>
+                        <span className="text-[var(--text-muted)]">Limite Usado: </span>
+                        <span className="font-bold tabular-nums text-[var(--text)]">
+                          {formatCentsToBRL(summary.usedLimitCents)}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-[var(--text-muted)]">
+                          {summary.exceededLimitCents > 0 ? 'Excedido: ' : 'Disponível: '}
+                        </span>
+                        <span
+                          className={`font-bold tabular-nums ${
+                            summary.exceededLimitCents > 0
+                              ? 'text-[var(--danger)]'
+                              : 'text-[var(--primary-bright)]'
+                          }`}
+                        >
+                          {summary.exceededLimitCents > 0
+                            ? formatCentsToBRL(summary.exceededLimitCents)
+                            : formatCentsToBRL(summary.availableLimitCents)}
+                        </span>
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <div className="flex items-center justify-between text-xs pt-1 border-t border-[var(--border)]">
+                    <span className="text-[var(--text-muted)]">Limite Usado (Crédito + futuras)</span>
+                    <span className="font-bold tabular-nums text-[var(--text)]">
+                      {formatCentsToBRL(summary.usedLimitCents)}
+                    </span>
+                  </div>
+                )}
+              </Card>
+            );
+          })}
+        </div>
+      )}
 
       {/* Monthly Closing Wrapped Banner */}
       <div

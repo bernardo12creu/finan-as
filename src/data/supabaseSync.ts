@@ -96,6 +96,7 @@ export function syncAccountToSupabase(acc: Account | Account[]): void {
     owner_id: a.ownerId,
     closing_day: a.closingDay ?? null,
     due_day: a.dueDay ?? null,
+    credit_limit_cents: a.creditLimitCents ?? null,
   }));
   void upsertRows('accounts', rows, 'id');
 }
@@ -231,6 +232,7 @@ export async function pullWorkspaceFromSupabase(
       owner_id: string;
       closing_day: number | null;
       due_day: number | null;
+      credit_limit_cents: number | null;
     }
 
     interface RemoteTransaction {
@@ -358,6 +360,7 @@ export async function pullWorkspaceFromSupabase(
       ownerId: a.owner_id,
       closingDay: a.closing_day ?? undefined,
       dueDay: a.due_day ?? undefined,
+      creditLimitCents: a.credit_limit_cents != null ? Number(a.credit_limit_cents) : undefined,
     }));
     const accMerge = mergeByUpdatedAt(localAccs, mappedRemoteAccs);
     if (accMerge.toSaveLocally.length > 0) {

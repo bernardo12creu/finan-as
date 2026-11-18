@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   CreditCard,
@@ -14,6 +14,8 @@ import {
   CheckCircle2,
   AlertTriangle,
   ChevronRight,
+  ChevronLeft,
+  Check,
   LogOut,
   Cloud,
   Sparkles,
@@ -24,8 +26,18 @@ import { Sheet } from '@/shared/ui/Sheet';
 import { MobileHeader } from '@/shared/ui/MobileHeader';
 import { CategoryIcon } from '@/shared/ui/CategoryIcon';
 import { useCategories, useWorkspaceSettings, useAccounts, useTransactions } from '@/data/hooks';
-import { categoryRepository, settingsRepository } from '@/data/repositories/local/localRepository';
+import {
+  categoryRepository,
+  settingsRepository,
+  transactionRepository,
+} from '@/data/repositories/local/localRepository';
 import { exportTransactionsToExcel, exportTransactionsToCSV } from '@/shared/lib/export';
+import {
+  getCurrentCompetence,
+  formatCompetenceLabel,
+  getPreviousCompetence,
+  getNextCompetence,
+} from '@/shared/lib/dates';
 import { isStandalonePwa } from '@/shared/lib/pwa';
 import { showToast } from '@/shared/ui/toastStore';
 import { db } from '@/data/db';
@@ -53,6 +65,10 @@ export const SettingsView: React.FC = () => {
   const [isLogoutConfirmOpen, setIsLogoutConfirmOpen] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [clearConfirmStep, setClearConfirmStep] = useState<0 | 1 | 2>(0);
+  const [clearScopeMode, setClearScopeMode] = useState<'month' | 'year' | 'all'>('month');
+  const [clearCompetence, setClearCompetence] = useState<string>(() => getCurrentCompetence());
+  const [clearYear, setClearYear] = useState<string>(() => getCurrentCompetence().substring(0, 4));
+  const [isClearing, setIsClearing] = useState<boolean>(false);
 
   // PWA Install prompt state
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -182,12 +198,57 @@ export const SettingsView: React.FC = () => {
     reader.readAsText(file);
   };
 
+  const monthCount = useMemo(
+    () =>
+      transactions.filter(
+        (t) => t.competence === clearCompetence || t.date.startsWith(clearCompetence)
+      ).length,
+    [transactions, clearCompetence]
+  );
+
+  const yearCount = useMemo(
+    () =>
+      transactions.filter(
+        (t) => t.competence.startsWith(`${clearYear}-`) || t.date.startsWith(`${clearYear}-`)
+      ).length,
+    [transactions, clearYear]
+  );
+
+  const allCount = transactions.length;
+  const selectedCount =
+    clearScopeMode === 'month' ? monthCount : clearScopeMode === 'year' ? yearCount : allCount;
+
+  const openClearSheet = () => {
+    const currentComp = getCurrentCompetence();
+    setClearScopeMode('month');
+    setClearCompetence(currentComp);
+    setClearYear(currentComp.substring(0, 4));
+    setClearConfirmStep(1);
+  };
+
   const executeClearAllData = async () => {
-    await db.transactions.clear();
-    await db.budgets.clear();
-    await db.recurringRules.clear();
-    setClearConfirmStep(0);
-    showToast({ message: 'Todos os lançamentos locais foram apagados.', type: 'info' });
+    if (isClearing) return;
+    setIsClearing(true);
+    try {
+      const deletedCount = await transactionRepository.clearWorkspaceTransactions({
+        mode: clearScopeMode,
+        competence: clearCompetence,
+        year: clearYear,
+      });
+      setClearConfirmStep(0);
+      showToast({
+        message:
+          deletedCount === 1
+            ? '1 lançamento apagado da sua conta.'
+            : `${deletedCount} lançamentos apagados da sua conta.`,
+        type: 'info',
+      });
+    } catch (err) {
+      console.error(err);
+      showToast({ message: 'Erro ao apagar lançamentos', type: 'error' });
+    } finally {
+      setIsClearing(false);
+    }
   };
 
   return (
@@ -419,7 +480,7 @@ export const SettingsView: React.FC = () => {
           Zona de Perigo
         </h2>
 
-        <Button variant="danger" size="md" onClick={() => setClearConfirmStep(1)}>
+        <Button variant="danger" size="md" onClick={openClearSheet}>
           <Trash2 className="w-4 h-4 mr-2" />
           Apagar Todos os Lançamentos
         </Button>
@@ -571,36 +632,239 @@ export const SettingsView: React.FC = () => {
         </div>
       </Sheet>
 
-      {/* Native 2-step Clear Data Confirmation Sheet */}
+      {/* Native Scoped Clear Data Sheet (Month / Year / All, synced to user's cloud workspace) */}
       <Sheet
         isOpen={clearConfirmStep > 0}
         onClose={() => setClearConfirmStep(0)}
-        title={clearConfirmStep === 1 ? 'Apagar todos os dados?' : 'Confirmação final'}
-      >
-        <div className="flex flex-col gap-4">
-          <div className="flex items-start gap-3 p-3.5 rounded-2xl bg-[var(--danger)]/10 border border-[var(--danger)]/30">
-            <AlertTriangle className="w-5 h-5 text-[var(--danger)] shrink-0 mt-0.5" />
-            <p className="text-sm text-[var(--text)] leading-relaxed">
-              {clearConfirmStep === 1
-                ? 'Você tem certeza de que deseja apagar TODOS os seus lançamentos, metas de orçamento e recorrências locais?'
-                : 'Esta ação apaga permanentemente os registros locais deste aparelho.'}
-            </p>
+        title={clearConfirmStep === 1 ? 'Apagar meus lançamentos' : 'Confirmar exclusão'}
+        footer={
+          <div className="flex flex-col gap-2">
+            {clearConfirmStep === 1 ? (
+              <>
+                <Button
+                  variant="danger"
+                  size="lg"
+                  fullWidth
+                  disabled={selectedCount === 0}
+                  onClick={() => setClearConfirmStep(2)}
+                >
+                  Continuar ({selectedCount} {selectedCount === 1 ? 'lançamento' : 'lançamentos'})
+                </Button>
+                <Button variant="ghost" size="md" fullWidth onClick={() => setClearConfirmStep(0)}>
+                  Cancelar
+                </Button>
+              </>
+            ) : (
+              <>
+                <Button
+                  variant="danger"
+                  size="lg"
+                  fullWidth
+                  isLoading={isClearing}
+                  onClick={executeClearAllData}
+                >
+                  Confirmar e Apagar ({selectedCount})
+                </Button>
+                <Button variant="ghost" size="md" fullWidth onClick={() => setClearConfirmStep(1)}>
+                  Voltar
+                </Button>
+              </>
+            )}
           </div>
+        }
+      >
+        {clearConfirmStep === 1 ? (
+          <div data-no-sheet-drag="true" className="flex flex-col gap-3">
+            <p className="text-xs text-[var(--text-muted)] leading-relaxed">
+              Escolha se deseja apagar apenas os lançamentos de um mês ou do ano inteiro. Esta ação afeta somente a sua conta.
+            </p>
 
-          {clearConfirmStep === 1 ? (
-            <Button variant="danger" size="lg" fullWidth onClick={() => setClearConfirmStep(2)}>
-              Sim, continuar
-            </Button>
-          ) : (
-            <Button variant="danger" size="lg" fullWidth onClick={executeClearAllData}>
-              Confirmar e Apagar Tudo
-            </Button>
-          )}
+            {/* Option 1: Specific Month */}
+            <div
+              role="button"
+              tabIndex={0}
+              onClick={() => setClearScopeMode('month')}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') setClearScopeMode('month');
+              }}
+              className={`rounded-2xl border p-3.5 flex flex-col gap-2.5 transition-colors cursor-pointer ${
+                clearScopeMode === 'month'
+                  ? 'border-[var(--danger)] bg-[var(--danger)]/10'
+                  : 'border-[var(--border)] bg-[var(--surface-2)]'
+              }`}
+            >
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2.5">
+                  <span
+                    className={`w-5 h-5 rounded-full border flex items-center justify-center shrink-0 ${
+                      clearScopeMode === 'month'
+                        ? 'bg-[var(--danger)] border-[var(--danger)] text-white'
+                        : 'border-white/25'
+                    }`}
+                  >
+                    {clearScopeMode === 'month' && <Check className="w-3 h-3 stroke-[3]" />}
+                  </span>
+                  <span className="text-sm font-bold text-[var(--text)]">Apagar do Mês</span>
+                </div>
+                <span className="px-2 py-0.5 rounded-full bg-white/[0.08] text-[11px] font-semibold text-[var(--text-muted)] tabular-nums">
+                  {monthCount} {monthCount === 1 ? 'registro' : 'registros'}
+                </span>
+              </div>
 
-          <Button variant="ghost" size="md" fullWidth onClick={() => setClearConfirmStep(0)}>
-            Cancelar
-          </Button>
-        </div>
+              <div className="flex items-center justify-between gap-2 pl-7">
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setClearScopeMode('month');
+                    setClearCompetence((prev) => getPreviousCompetence(prev));
+                  }}
+                  className="w-8 h-8 rounded-xl bg-[var(--surface)] border border-[var(--border)] flex items-center justify-center text-[var(--text-muted)] hover:text-[var(--text)] active:scale-90"
+                  aria-label="Mês anterior"
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                </button>
+
+                <span className="text-xs font-bold text-[var(--text)]">
+                  {formatCompetenceLabel(clearCompetence)}
+                </span>
+
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setClearScopeMode('month');
+                    setClearCompetence((prev) => getNextCompetence(prev));
+                  }}
+                  className="w-8 h-8 rounded-xl bg-[var(--surface)] border border-[var(--border)] flex items-center justify-center text-[var(--text-muted)] hover:text-[var(--text)] active:scale-90"
+                  aria-label="Próximo mês"
+                >
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+
+            {/* Option 2: Whole Year */}
+            <div
+              role="button"
+              tabIndex={0}
+              onClick={() => setClearScopeMode('year')}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') setClearScopeMode('year');
+              }}
+              className={`rounded-2xl border p-3.5 flex flex-col gap-2.5 transition-colors cursor-pointer ${
+                clearScopeMode === 'year'
+                  ? 'border-[var(--danger)] bg-[var(--danger)]/10'
+                  : 'border-[var(--border)] bg-[var(--surface-2)]'
+              }`}
+            >
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2.5">
+                  <span
+                    className={`w-5 h-5 rounded-full border flex items-center justify-center shrink-0 ${
+                      clearScopeMode === 'year'
+                        ? 'bg-[var(--danger)] border-[var(--danger)] text-white'
+                        : 'border-white/25'
+                    }`}
+                  >
+                    {clearScopeMode === 'year' && <Check className="w-3 h-3 stroke-[3]" />}
+                  </span>
+                  <span className="text-sm font-bold text-[var(--text)]">Apagar do Ano</span>
+                </div>
+                <span className="px-2 py-0.5 rounded-full bg-white/[0.08] text-[11px] font-semibold text-[var(--text-muted)] tabular-nums">
+                  {yearCount} {yearCount === 1 ? 'registro' : 'registros'}
+                </span>
+              </div>
+
+              <div className="flex items-center justify-between gap-2 pl-7">
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setClearScopeMode('year');
+                    setClearYear((prev) => String(Number(prev) - 1));
+                  }}
+                  className="w-8 h-8 rounded-xl bg-[var(--surface)] border border-[var(--border)] flex items-center justify-center text-[var(--text-muted)] hover:text-[var(--text)] active:scale-90"
+                  aria-label="Ano anterior"
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                </button>
+
+                <span className="text-xs font-bold text-[var(--text)] tabular-nums">
+                  Ano {clearYear}
+                </span>
+
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setClearScopeMode('year');
+                    setClearYear((prev) => String(Number(prev) + 1));
+                  }}
+                  className="w-8 h-8 rounded-xl bg-[var(--surface)] border border-[var(--border)] flex items-center justify-center text-[var(--text-muted)] hover:text-[var(--text)] active:scale-90"
+                  aria-label="Próximo ano"
+                >
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+
+            {/* Option 3: All Years / Complete Reset (shown cleanly whenever user has multiple years or prefers wiping everything) */}
+            <div
+              role="button"
+              tabIndex={0}
+              onClick={() => setClearScopeMode('all')}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') setClearScopeMode('all');
+              }}
+              className={`rounded-2xl border p-3.5 flex items-center justify-between gap-2 transition-colors cursor-pointer ${
+                clearScopeMode === 'all'
+                  ? 'border-[var(--danger)] bg-[var(--danger)]/10'
+                  : 'border-[var(--border)] bg-[var(--surface-2)]'
+              }`}
+            >
+              <div className="flex items-center gap-2.5 min-w-0">
+                <span
+                  className={`w-5 h-5 rounded-full border flex items-center justify-center shrink-0 ${
+                    clearScopeMode === 'all'
+                      ? 'bg-[var(--danger)] border-[var(--danger)] text-white'
+                      : 'border-white/25'
+                  }`}
+                >
+                  {clearScopeMode === 'all' && <Check className="w-3 h-3 stroke-[3]" />}
+                </span>
+                <div className="min-w-0">
+                  <div className="text-sm font-bold text-[var(--text)]">Apagar Tudo</div>
+                  <div className="text-[11px] text-[var(--text-muted)] truncate">
+                    Todos os anos, incluindo parcelas futuras
+                  </div>
+                </div>
+              </div>
+              <span className="px-2 py-0.5 rounded-full bg-white/[0.08] text-[11px] font-semibold text-[var(--text-muted)] tabular-nums shrink-0">
+                {allCount}
+              </span>
+            </div>
+          </div>
+        ) : (
+          <div className="flex flex-col gap-3">
+            <div className="flex items-start gap-3 p-3.5 rounded-2xl bg-[var(--danger)]/10 border border-[var(--danger)]/30">
+              <AlertTriangle className="w-5 h-5 text-[var(--danger)] shrink-0 mt-0.5" />
+              <div className="flex flex-col gap-1 text-sm text-[var(--text)] leading-relaxed">
+                <span className="font-bold">
+                  {clearScopeMode === 'month'
+                    ? `Mês de ${formatCompetenceLabel(clearCompetence)}`
+                    : clearScopeMode === 'year'
+                      ? `Ano de ${clearYear}`
+                      : 'Todos os períodos'}
+                </span>
+                <span className="text-xs text-[var(--text-muted)] leading-relaxed">
+                  <strong>{selectedCount}</strong>{' '}
+                  {selectedCount === 1 ? 'lançamento será apagado' : 'lançamentos serão apagados'} permanentemente da sua conta ({userEmail || displayName || 'sua conta'}), no aparelho e na nuvem.
+                </span>
+              </div>
+            </div>
+          </div>
+        )}
       </Sheet>
     </div>
   );

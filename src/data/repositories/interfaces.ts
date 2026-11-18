@@ -46,6 +46,12 @@ export interface UpdateSeriesParams {
   anchorDate?: string;
 }
 
+export interface ClearTransactionsScope {
+  mode: 'month' | 'year' | 'all';
+  competence?: string; // YYYY-MM when mode === 'month'
+  year?: string; // YYYY when mode === 'year'
+}
+
 export interface TransactionFilters {
   competence?: string;
   categoryId?: string;
@@ -68,6 +74,7 @@ export interface ITransactionRepository {
   softDelete(id: string): Promise<void>;
   softDeleteGroup(groupId: string, fromInstallmentNumber?: number): Promise<void>;
   softDeleteByRecurringRule(recurringRuleId: string): Promise<void>;
+  clearWorkspaceTransactions(scope: ClearTransactionsScope): Promise<number>;
   restore(id: string): Promise<void>;
   getUpcomingPlanned(daysAhead: number): Promise<Transaction[]>;
 }

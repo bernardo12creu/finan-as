@@ -236,4 +236,79 @@ describe('multi-workspace data isolation', () => {
     const activeRules = await recRepo.listActive();
     expect(activeRules).toHaveLength(0);
   });
+
+  it('clears user transactions strictly within own workspace by month or year without touching other years or workspaces', async () => {
+    // Seed Beta with a 2026-11 transaction
+    useSessionStore.getState().setSession('usr_beta', 'ws_beta');
+    await txRepo.create({
+      type: 'expense',
+      amountCents: 9000,
+      description: 'Beta Protected Nov',
+      categoryId: 'cat_beta',
+      accountId: 'acc_beta',
+      paymentMethod: 'pix',
+      date: '2026-11-10',
+      competence: '2026-11',
+    });
+
+    // Seed Alpha across Nov 2026, Dec 2026, and Jan 2027
+    useSessionStore.getState().setSession('usr_alpha', 'ws_alpha');
+    await txRepo.create({
+      type: 'expense',
+      amountCents: 3000,
+      description: 'Alpha Nov 2026',
+      categoryId: 'cat_alpha',
+      accountId: 'acc_alpha',
+      paymentMethod: 'pix',
+      date: '2026-11-12',
+      competence: '2026-11',
+    });
+    await txRepo.create({
+      type: 'expense',
+      amountCents: 4000,
+      description: 'Alpha Dec 2026',
+      categoryId: 'cat_alpha',
+      accountId: 'acc_alpha',
+      paymentMethod: 'pix',
+      date: '2026-12-05',
+      competence: '2026-12',
+    });
+    await txRepo.create({
+      type: 'expense',
+      amountCents: 5000,
+      description: 'Alpha Jan 2027',
+      categoryId: 'cat_alpha',
+      accountId: 'acc_alpha',
+      paymentMethod: 'pix',
+      date: '2027-01-05',
+      competence: '2027-01',
+    });
+
+    // 1. Delete only Nov 2026 in Alpha
+    const deletedNov = await txRepo.clearWorkspaceTransactions({
+      mode: 'month',
+      competence: '2026-11',
+    });
+    expect(deletedNov).toBe(1);
+    const remainingAfterMonth = await txRepo.list();
+    expect(remainingAfterMonth.map((t) => t.description).sort()).toEqual([
+      'Alpha Dec 2026',
+      'Alpha Jan 2027',
+    ]);
+
+    // 2. Delete year 2026 in Alpha (should keep Alpha Jan 2027)
+    const deleted2026 = await txRepo.clearWorkspaceTransactions({
+      mode: 'year',
+      year: '2026',
+    });
+    expect(deleted2026).toBe(1);
+    const remainingAfterYear = await txRepo.list();
+    expect(remainingAfterYear.map((t) => t.description)).toEqual(['Alpha Jan 2027']);
+
+    // 3. Verify Beta is completely untouched
+    useSessionStore.getState().setSession('usr_beta', 'ws_beta');
+    const betaTxs = await txRepo.list();
+    expect(betaTxs).toHaveLength(1);
+    expect(betaTxs[0].description).toBe('Beta Protected Nov');
+  });
 });

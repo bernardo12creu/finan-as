@@ -10,6 +10,7 @@ import {
   CreateTransactionDTO,
   TransactionFilters,
   UpdateSeriesParams,
+  ClearTransactionsScope,
 } from '../interfaces';
 import { determineTransactionCompetence } from '@/shared/lib/competence';
 import { isRuleActiveForCompetence, getRecurrenceDateForCompetence } from '@/shared/lib/recurrence';
@@ -459,6 +460,62 @@ export class LocalTransactionRepository implements ITransactionRepository {
       await this.database.recurringRules.put(updatedRule);
       syncRecurringRuleToSupabase(updatedRule);
     }
+  }
+
+  async clearWorkspaceTransactions(scope: ClearTransactionsScope): Promise<number> {
+    const { workspaceId } = this.getSessionContext();
+    const now = new Date().toISOString();
+
+    const activeTxs = await this.database.transactions
+      .where('workspaceId')
+      .equals(workspaceId)
+      .filter((t) => !t.deletedAt)
+      .toArray();
+
+    const targets = activeTxs.filter((t) => {
+      if (scope.mode === 'month') {
+        const comp = scope.competence || '';
+        return Boolean(comp && (t.competence === comp || t.date.startsWith(comp)));
+      }
+      if (scope.mode === 'year') {
+        const yr = scope.year || '';
+        return Boolean(
+          yr && (t.competence.startsWith(`${yr}-`) || t.date.startsWith(`${yr}-`))
+        );
+      }
+      return true;
+    });
+
+    if (targets.length > 0) {
+      const updated = targets.map((t) => ({
+        ...t,
+        deletedAt: now,
+        updatedAt: now,
+      }));
+      await this.database.transactions.bulkPut(updated);
+      syncTransactionToSupabase(updated);
+    }
+
+    if (scope.mode === 'year' || scope.mode === 'all') {
+      const activeRules = await this.database.recurringRules
+        .where('workspaceId')
+        .equals(workspaceId)
+        .filter((r) => !r.deletedAt && r.active)
+        .toArray();
+
+      if (activeRules.length > 0) {
+        const updatedRules: RecurringRule[] = activeRules.map((r) => ({
+          ...r,
+          active: false,
+          deletedAt: now,
+          updatedAt: now,
+        }));
+        await this.database.recurringRules.bulkPut(updatedRules);
+        syncRecurringRuleToSupabase(updatedRules);
+      }
+    }
+
+    return targets.length;
   }
 
   async restore(id: string): Promise<void> {
